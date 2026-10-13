@@ -160,19 +160,20 @@ h1 { font-size: 40px; line-height: 1.2; font-weight: 700; margin: 0 0 6px; lette
 .link { color: var(--accent); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 
-input[type=text], input[type=url], input[type=number], select {
+input[type=text], input[type=url], input[type=number], input[type=password], select {
   height: 32px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field); color: var(--text);
   font: inherit; font-size: 14px; outline: none;
 }
-input[type=text]:focus, input[type=url]:focus, input[type=number]:focus, select:focus {
+input[type=text]:focus, input[type=url]:focus, input[type=number]:focus, input[type=password]:focus, select:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 select { cursor: pointer; padding-right: 6px; }
 select option { background: var(--bg); color: var(--text); }
 input[type=range] { accent-color: var(--accent); width: 180px; }
 input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; margin: 3px 0 0; flex: none; }
+.narrow-num { width: 110px; }
 .narrow { width: 64px; height: 26px !important; padding: 0 6px !important; }
 
 /* Toggle switch */
@@ -285,6 +286,12 @@ input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; marg
   box-shadow: 0 0 0 1px var(--border), 0 2px 6px rgba(15,15,15,.08); pointer-events: none;
 }
 .page .label { font-size: 12px; color: var(--text-2); margin-top: 8px; }
+.page .thumb { position: relative; aspect-ratio: var(--ratio, 0.707); display: flex; align-items: center; justify-content: center; }
+.page .thumb img { width: 100%; height: auto; transition: transform .15s; }
+.page .page-tools { display: flex; justify-content: center; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .1s; }
+.page:hover .page-tools, .page .page-tools:focus-within { opacity: 1; }
+@media (hover: none) { .page .page-tools { opacity: 1; } }
+.page .page-tools .btn { pointer-events: auto; }
 .page.dragging { opacity: .35; }
 .page.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 
@@ -315,7 +322,10 @@ input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; marg
 .yt-info img { width: 120px; border-radius: 4px; }
 .progress-block { padding-top: 6px; }
 .progress { height: 4px; border-radius: 2px; background: var(--active); overflow: hidden; }
-.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .7s linear; }
+.now { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+.now .now-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now .now-note { color: var(--text-2); flex: none; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
 .stats div { display: flex; flex-direction: column; }
 .stats span { font-size: 12px; color: var(--text-3); }
@@ -362,3 +372,8 @@ input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; marg
   .stats { grid-template-columns: repeat(2, 1fr); }
   .editor-bar .btn.ghost span { display: none; }
 }
+
+/* ── Save-to folder ─────────────────────────────────────────────────────── */
+.path-field { display: flex; align-items: center; gap: 6px; width: 100%; }
+.path-input { flex: 1 1 0; min-width: 0; }
+@media (max-width: 520px) { .path-field { flex-wrap: wrap; } .path-input { flex-basis: 100%; } }

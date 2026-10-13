@@ -1,0 +1,15 @@
+# Let Git normalise text files, but keep the launchers in the line endings their system needs:
+# a shell script with Windows (CRLF) endings fails on macOS/Linux with "bad interpreter",
+# and a .bat file wants Windows endings.
+* text=auto
+
+*.sh      text eol=lf
+*.command text eol=lf
+*.py      text eol=lf
+*.bat     text eol=crlf
+
+# Never touch binary files
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.pdf  binary

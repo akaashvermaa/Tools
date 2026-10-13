@@ -60,13 +60,17 @@ async function errorFrom(res) {
   }
 }
 
-/** POST a form and download whatever file the server sends back. */
-async function postAndDownload(url, form, fallbackName) {
+/** POST a form and download whatever file the server sends back. Resolves to { name, headers }. */
+async function postForFile(url, form, fallbackName) {
   const res = await fetch(url, { method: "POST", body: form });
   if (!res.ok) throw new Error(await errorFrom(res));
   const name = filenameFrom(res, fallbackName);
   saveBlob(await res.blob(), name);
-  return name;
+  return { name, headers: res.headers };
+}
+
+async function postAndDownload(url, form, fallbackName) {
+  return (await postForFile(url, form, fallbackName)).name;
 }
 
 async function postJSON(url, body) {
@@ -258,7 +262,7 @@ function fcRouteChanged() {
   fcZone.dataset.accept = accept;
   $("input[type=file]", fcZone).accept = accept;
   $("#fc-hint").textContent = accept.replaceAll(".", "").toUpperCase().replaceAll(",", ", ");
-  $("#fc-quality-field").hidden = out !== "jpg";
+  $("#fc-quality-field").hidden = out !== "jpg" && out !== "webp";
   $("#fc-dpi-field").hidden = accept !== ".pdf";
   $("#fc-merge-field").hidden = out !== "pdf";
   lists["fc-list"].clear();
@@ -328,13 +332,15 @@ $("#split-run").addEventListener("click", (e) => {
 $("#split-range").addEventListener("focus", () => ($("input[value=range]").checked = true));
 $("#split-n").addEventListener("focus", () => ($("input[value=every_n]").checked = true));
 
-// ── Reorder tab ─────────────────────────────────────────────────────────────
+// ── Organize pages tab ──────────────────────────────────────────────────────
 
 const Reorder = {
   file: null,
   thumbs: [],
-  order: [],
+  pages: [],   // current result, in order: { page: source index, rotate: degrees }
   dragFrom: null,
+
+  fresh() { return this.thumbs.map((_, i) => ({ page: i, rotate: 0 })); },
 
   async load(file) {
     const status = $("#reorder-status");
@@ -348,11 +354,8 @@ const Reorder = {
       const res = await fetch("/api/pdf/thumbnails", { method: "POST", body: fd });
       if (!res.ok) throw new Error(await errorFrom(res));
       this.thumbs = (await res.json()).pages;
-      this.order = this.thumbs.map((_, i) => i);
-      $("#reorder-name").textContent = `${file.name} — ${this.thumbs.length} pages`;
+      this.pages = this.fresh();
       $("#reorder-tools").hidden = false;
-      $("#reorder-run").disabled = false;
-      setStatus(status, "Drag pages to rearrange them");
       this.render();
     } catch (e) {
       setStatus(status, e.message, "err");
@@ -360,13 +363,35 @@ const Reorder = {
     }
   },
 
+  summary() {
+    const kept = this.pages.length, total = this.thumbs.length;
+    $("#reorder-name").textContent = `${this.file.name} — ${kept} of ${total} pages kept`;
+    $("#reorder-run").disabled = !kept;
+    setStatus($("#reorder-status"), kept ? "Drag to reorder · hover a page to rotate or delete it" : "Every page was deleted. Press Reset.");
+  },
+
   render() {
-    $("#reorder-grid").replaceChildren(...this.order.map((page, pos) => {
+    this.summary();
+    $("#reorder-grid").replaceChildren(...this.pages.map((item, pos) => {
       const el = document.createElement("div");
       el.className = "page";
       el.draggable = true;
-      el.innerHTML = `<img alt=""><div class="label">${pos + 1} · page ${page + 1}</div>`;
-      $("img", el).src = this.thumbs[page];
+      el.innerHTML = `<div class="thumb"><img alt=""></div><div class="label">${pos + 1} · page ${item.page + 1}</div>` +
+        `<div class="page-tools">` +
+        `<button class="btn icon" data-act="left" title="Rotate left">↺</button>` +
+        `<button class="btn icon" data-act="right" title="Rotate right">↻</button>` +
+        `<button class="btn icon" data-act="del" title="Delete page">✕</button></div>`;
+      const img = $("img", el);
+      img.src = this.thumbs[item.page];
+      img.addEventListener("load", () => this.fit(img, item.rotate), { once: true });
+      if (img.complete) this.fit(img, item.rotate);
+      el.addEventListener("click", (e) => {
+        const act = e.target.dataset.act;
+        if (!act) return;
+        if (act === "del") this.pages.splice(pos, 1);
+        else item.rotate = (item.rotate + (act === "left" ? 270 : 90)) % 360;
+        this.render();
+      });
       el.addEventListener("dragstart", () => { this.dragFrom = pos; el.classList.add("dragging"); });
       el.addEventListener("dragend", () => el.classList.remove("dragging"));
       el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("drop-target"); });
@@ -375,30 +400,147 @@ const Reorder = {
         e.preventDefault();
         e.stopPropagation();
         if (this.dragFrom == null || this.dragFrom === pos) return this.render();
-        const [moved] = this.order.splice(this.dragFrom, 1);
-        this.order.splice(pos, 0, moved);
+        const [moved] = this.pages.splice(this.dragFrom, 1);
+        this.pages.splice(pos, 0, moved);
         this.dragFrom = null;
         this.render();
       });
       return el;
     }));
   },
+
+  /** Turn the thumbnail inside its box. A sideways page is drawn narrower so that, once turned, it fills the box. */
+  fit(img, rotate) {
+    const w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) return;
+    const sideways = rotate % 180 === 90;
+    img.parentElement.style.setProperty("--ratio", sideways ? h / w : w / h);
+    img.style.width = sideways ? `${(w / h) * 100}%` : "100%";
+    img.style.transform = `rotate(${rotate}deg)`;
+  },
 };
 
 bindDropzone($("#reorder-drop"), (files) => Reorder.load(files[0]));
-$("#reorder-reverse").addEventListener("click", () => { Reorder.order.reverse(); Reorder.render(); });
-$("#reorder-reset").addEventListener("click", () => {
-  Reorder.order = Reorder.thumbs.map((_, i) => i);
-  Reorder.render();
-});
+$("#reorder-reverse").addEventListener("click", () => { Reorder.pages.reverse(); Reorder.render(); });
+$("#reorder-reset").addEventListener("click", () => { Reorder.pages = Reorder.fresh(); Reorder.render(); });
 $("#reorder-run").addEventListener("click", (e) => {
   if (!Reorder.file) return;
   runTask(e.currentTarget, $("#reorder-status"), "Saving…", async () => {
     const fd = new FormData();
     fd.append("file", Reorder.file);
-    fd.append("order", Reorder.order.join(","));
-    await postAndDownload("/api/reorder", fd, "reordered.pdf");
-    return `Saved reordered PDF (${Reorder.order.length} pages)!`;
+    fd.append("pages", JSON.stringify(Reorder.pages));
+    await postAndDownload("/api/reorder", fd, "organized.pdf");
+    return `Saved PDF with ${Reorder.pages.length} page(s)!`;
+  });
+});
+
+// ── Compress tab ────────────────────────────────────────────────────────────
+
+$("#compress-run").addEventListener("click", (e) => {
+  const list = lists["compress-list"];
+  if (!list.files.length) return toast("Please add a PDF to compress.", true);
+  runTask(e.currentTarget, $("#compress-status"), "Compressing…", async () => {
+    const fd = list.formData("file");
+    fd.append("level", $("input[name=compress-level]:checked").value);
+    const { name, headers } = await postForFile("/api/compress", fd, "compressed.pdf");
+    const before = Number(headers.get("X-Original-Size")), after = Number(headers.get("X-New-Size"));
+    if (after >= before) return `Saved ${name}. This PDF was already as small as it gets (${fmtSize(before)}).`;
+    return `${fmtSize(before)} → ${fmtSize(after)} (${Math.round((1 - after / before) * 100)}% smaller). Saved ${name}.`;
+  });
+});
+
+// ── Protect / unlock tab ────────────────────────────────────────────────────
+
+function protectModeChanged() {
+  const unlock = $("#protect-mode").value === "unlock";
+  $("#protect-run-label").textContent = unlock ? "Unlock PDF" : "Protect PDF";
+  $("#protect-hint").textContent = unlock
+    ? "The current password of this PDF."
+    : "Needed to open the PDF. If you forget it, it can't be recovered.";
+}
+$("#protect-mode").addEventListener("change", protectModeChanged);
+
+$("#protect-run").addEventListener("click", (e) => {
+  const list = lists["protect-list"];
+  if (!list.files.length) return toast("Please add a PDF first.", true);
+  const password = $("#protect-password").value;
+  if (!password) return toast("Please enter a password.", true);
+  const unlock = $("#protect-mode").value === "unlock";
+  runTask(e.currentTarget, $("#protect-status"), unlock ? "Unlocking…" : "Protecting…", async () => {
+    const fd = list.formData("file");
+    fd.append("mode", $("#protect-mode").value);
+    fd.append("password", password);
+    const { name } = await postForFile("/api/protect", fd, "protected.pdf");
+    $("#protect-password").value = "";
+    return unlock ? `Unlocked. Saved ${name}.` : `Protected with your password. Saved ${name}.`;
+  });
+});
+
+// ── Watermark & page numbers tab ────────────────────────────────────────────
+
+$("#stamp-size").addEventListener("input", (e) => ($("#stamp-size-val").textContent = e.target.value));
+$("#stamp-opacity").addEventListener("input", (e) => ($("#stamp-opacity-val").textContent = `${e.target.value}%`));
+
+$("#stamp-run").addEventListener("click", (e) => {
+  const list = lists["stamp-list"];
+  if (!list.files.length) return toast("Please add a PDF first.", true);
+  const text = $("#stamp-text").value.trim(), numbering = $("#stamp-numbering").value;
+  if (!text && !numbering) return toast("Enter watermark text or choose a page-number style.", true);
+  runTask(e.currentTarget, $("#stamp-status"), "Stamping…", async () => {
+    const fd = list.formData("file");
+    fd.append("watermark", text);
+    fd.append("size", $("#stamp-size").value);
+    fd.append("opacity", $("#stamp-opacity").value);
+    fd.append("numbering", numbering);
+    fd.append("position", $("#stamp-position").value);
+    const { name } = await postForFile("/api/stamp", fd, "stamped.pdf");
+    return `Saved ${name}.`;
+  });
+});
+
+// ── Resize & compress images tab ────────────────────────────────────────────
+
+function irRefresh() {
+  const mode = $("#ir-mode").value, fmt = $("#ir-format").value;
+  $("#ir-percent-field").hidden = mode !== "percent";
+  $("#ir-box-field").hidden = mode !== "fit" && mode !== "exact";
+  $("#ir-box-hint").textContent = mode === "fit" ? "Never enlarges. Leave one empty to limit only the other."
+    : "Fills the whole size and trims whatever doesn't fit.";
+  $("#ir-quality-field").hidden = fmt === "png";
+}
+$("#ir-mode").addEventListener("change", () => { $("#ir-preset").value = ""; irRefresh(); });
+$("#ir-format").addEventListener("change", irRefresh);
+$("#ir-percent").addEventListener("input", (e) => ($("#ir-percent-val").textContent = `${e.target.value}%`));
+$("#ir-quality").addEventListener("input", (e) => ($("#ir-quality-val").textContent = e.target.value));
+$("#ir-preset").addEventListener("change", (e) => {
+  const opt = e.target.selectedOptions[0];
+  if (!opt.value) return;
+  $("#ir-mode").value = opt.dataset.mode;
+  $("#ir-width").value = opt.dataset.w;
+  $("#ir-height").value = opt.dataset.h;
+  irRefresh();
+});
+["ir-width", "ir-height"].forEach((id) => $(`#${id}`).addEventListener("input", () => ($("#ir-preset").value = "")));
+irRefresh();
+
+$("#ir-run").addEventListener("click", (e) => {
+  const list = lists["ir-list"];
+  if (!list.files.length) return toast("Please add at least one photo.", true);
+  runTask(e.currentTarget, $("#ir-status"), "Working…", async () => {
+    const fd = list.formData();
+    fd.append("mode", $("#ir-mode").value);
+    fd.append("percent", $("#ir-percent").value);
+    fd.append("width", $("#ir-width").value || "0");
+    fd.append("height", $("#ir-height").value || "0");
+    fd.append("format", $("#ir-format").value);
+    fd.append("quality", $("#ir-quality").value);
+    fd.append("max_kb", $("#ir-maxkb").value || "0");
+    fd.append("strip", $("#ir-strip").checked ? "1" : "0");
+    const { name, headers } = await postForFile("/api/imgresize", fd, "images");
+    const before = Number(headers.get("X-Original-Size")), after = Number(headers.get("X-New-Size"));
+    const notes = headers.get("X-Notes");
+    const sizes = after < before ? `${fmtSize(before)} → ${fmtSize(after)}` : `${fmtSize(after)}`;
+    return `${sizes}. Saved ${name}.` + (notes ? ` Note: ${notes}` : "");
   });
 });
 
@@ -580,38 +722,49 @@ Editor.stage.addEventListener("drop", (e) => {
 });
 new ResizeObserver(() => Editor.redraw()).observe(Editor.stage);
 
-// ── YouTube downloader ──────────────────────────────────────────────────────
+// ── Video downloaders (YouTube, Facebook, Instagram) ────────────────────────
+// One instance per site. `prefix` matches the element ids in the page ("yt-url", "fb-url", …).
 
-const YT = {
-  pollTimer: null,
+class Downloader {
+  constructor(platform, prefix) {
+    this.platform = platform;
+    this.prefix = prefix;
+    this.pollTimer = null;
+    this.storeKey = `aura-${prefix}-job`;
+  }
+
+  el(name) { return $(`#${this.prefix}-${name}`); }
 
   body() {
     return {
-      url: $("#yt-url").value.trim(),
-      quality: $("#yt-quality").value,
-      container: $("#yt-container").value,
-      subtitles: $("#yt-subs").checked,
-      playlist: $("#yt-playlist").checked,
-      cookies: $("#yt-cookies").value,
+      platform: this.platform,
+      url: this.el("url").value.trim(),
+      quality: this.el("quality").value,
+      container: this.el("container").value,
+      subtitles: this.el("subs")?.checked ?? false,
+      playlist: this.el("playlist").checked,
+      pace: this.el("pace").value,
+      save_dir: this.el("savedir").value.trim(),
+      cookies: this.el("cookies").value,
     };
-  },
+  }
 
   log(lines) {
-    const el = $("#yt-log");
+    const el = this.el("log");
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
     el.textContent = lines.join("\n");
     if (atBottom) el.scrollTop = el.scrollHeight;
-  },
+  }
 
   async fetchInfo() {
-    const status = $("#yt-status");
+    const status = this.el("status");
     setStatus(status, "Fetching video info…", "busy");
     try {
       const info = await postJSON("/api/yt/info", this.body());
-      $("#yt-title").textContent = info.title;
+      this.el("title").textContent = info.title;
       const views = info.view_count != null ? `${info.view_count.toLocaleString()} views` : "";
-      $("#yt-meta").textContent = [info.uploader, fmtTime(info.duration), views].filter(Boolean).join("   ·   ");
-      const thumb = $("#yt-thumb");
+      this.el("meta").textContent = [info.uploader, fmtTime(info.duration), views].filter(Boolean).join("   ·   ");
+      const thumb = this.el("thumb");
       thumb.hidden = !info.thumbnail;
       if (info.thumbnail) thumb.src = info.thumbnail;
       setStatus(status, "Ready to download.", "ok");
@@ -619,47 +772,47 @@ const YT = {
       setStatus(status, e.message, "err");
       toast(e.message, true);
     }
-  },
+  }
 
   async start() {
-    const btn = $("#yt-run");
+    const btn = this.el("run");
     btn.disabled = true;
     btn.lastChild.textContent = "Downloading…";
-    $("#yt-progress").hidden = false;
-    $("#yt-files").replaceChildren();
-    $("#yt-bar").style.width = "0";
-    setStatus($("#yt-status"), "Starting download…", "busy");
+    this.el("progress").hidden = false;
+    this.el("files").replaceChildren();
+    this.el("bar").style.width = "0";
+    setStatus(this.el("status"), "Starting download…", "busy");
     try {
       const { job_id } = await postJSON("/api/yt/download", this.body());
       this.remember(job_id);
       this.poll(job_id, true);
     } catch (e) {
       this.finish();
-      setStatus($("#yt-status"), e.message, "err");
+      setStatus(this.el("status"), e.message, "err");
       toast(e.message, true);
     }
-  },
+  }
 
   remember(jobId) {
-    try { jobId ? localStorage.setItem("aura-yt-job", jobId) : localStorage.removeItem("aura-yt-job"); } catch {}
-  },
+    try { jobId ? localStorage.setItem(this.storeKey, jobId) : localStorage.removeItem(this.storeKey); } catch {}
+  }
 
   /** After a page reload, reattach to a download that is still running or recently finished. */
   async resume() {
     let jobId;
-    try { jobId = localStorage.getItem("aura-yt-job"); } catch {}
+    try { jobId = localStorage.getItem(this.storeKey); } catch {}
     if (!jobId) return;
     const res = await fetch(`/api/yt/jobs/${jobId}`).catch(() => null);
     if (!res || !res.ok) return this.remember(null);
     const job = await res.json();
     if (job.status === "error") return this.remember(null);
-    $("#yt-progress").hidden = false;
+    this.el("progress").hidden = false;
     if (job.status !== "done") {
-      $("#yt-run").disabled = true;
-      $("#yt-run").lastChild.textContent = "Downloading…";
+      this.el("run").disabled = true;
+      this.el("run").lastChild.textContent = "Downloading…";
     }
     this.poll(jobId, false);
-  },
+  }
 
   async poll(jobId, autoSave = true) {
     let job;
@@ -670,75 +823,272 @@ const YT = {
     } catch (e) {
       this.finish();
       this.remember(null);
-      setStatus($("#yt-status"), e.message, "err");
+      setStatus(this.el("status"), e.message, "err");
       return;
     }
 
-    $("#yt-bar").style.width = `${(job.progress * 100).toFixed(1)}%`;
-    $("#yt-speed").textContent = job.speed != null ? fmtSize(job.speed) + "/s" : "—";
-    $("#yt-eta").textContent = fmtTime(job.eta);
-    $("#yt-size").textContent = fmtSize(job.total);
-    $("#yt-done").textContent = fmtSize(job.downloaded);
+    this.render(job);
     this.log(job.log);
 
     if (job.status === "done") {
       this.finish();
-      setStatus($("#yt-status"), "Download complete! Click a file to save it.", "ok");
-      toast("Download complete!");
-      this.showFiles(jobId, job.files);
+      const saved = job.saved_to ? `Saved ${job.files.length} file(s) to ${job.saved_to}` : "";
+      if (job.warning) {
+        setStatus(this.el("status"), [job.warning, saved].filter(Boolean).join(" "), "err");
+        toast(job.warning, true);
+      } else if (saved) {
+        setStatus(this.el("status"), saved, "ok");
+        toast("Download complete!");
+      } else {
+        setStatus(this.el("status"), "Download complete! Click a file to save it.", "ok");
+        toast("Download complete!");
+      }
+      this.showFiles(jobId, job.files, Boolean(job.saved_to));
       // Single file: save it straight away (not again when reattaching after a reload).
-      if (autoSave && job.files.length === 1) location.href = `/api/yt/jobs/${jobId}/files/0`;
+      // Files saved into a chosen folder are already where they should be.
+      if (autoSave && !job.saved_to && job.files.length === 1) location.href = `/api/yt/jobs/${jobId}/files/0`;
     } else if (job.status === "error") {
       this.finish();
       this.remember(null);
-      setStatus($("#yt-status"), job.error || "Download failed", "err");
+      setStatus(this.el("status"), job.error || "Download failed", "err");
       toast(job.error || "Download failed", true);
     } else {
-      const label = job.status === "processing" ? "Processing…" : `Downloading… ${(job.progress * 100).toFixed(1)}%`;
-      setStatus($("#yt-status"), label, "busy");
+      const pct = `${(job.progress * 100).toFixed(1)}%`;
+      const where = job.item_count > 1 ? `Video ${job.item_index} of ${job.item_count} · ` : "";
+      const label = job.status === "processing" ? `${where}Processing…` : `${where}Downloading… ${pct}`;
+      setStatus(this.el("status"), label, "busy");
       this.pollTimer = setTimeout(() => this.poll(jobId, autoSave), 700);
     }
-  },
+  }
 
-  showFiles(jobId, files) {
-    $("#yt-files").replaceChildren(...files.map((name, i) => {
+  /** Bar, timer and counters. The server already smooths these, so just show them. */
+  render(job) {
+    const playlist = job.item_count > 1;
+    const finished = job.status === "done";
+    this.el("bar").style.width = `${((finished ? 1 : job.progress) * 100).toFixed(1)}%`;
+    this.el("speed").textContent = job.speed != null ? fmtSize(job.speed) + "/s" : "—";
+    this.el("eta").textContent = finished ? "0:00" : fmtTime(job.eta);
+    this.el("done").textContent = fmtSize(job.downloaded);
+
+    $(`#${this.prefix}-size-label`).textContent = playlist ? "Videos" : "Size";
+    if (playlist) {
+      const complete = finished ? job.item_count : Math.max(job.item_index - 1, 0);
+      const skipped = job.skipped ? ` · ${job.skipped} skipped` : "";
+      this.el("size").textContent = `${complete} of ${job.item_count} done${skipped}`;
+    } else {
+      this.el("size").textContent = fmtSize(job.total);
+    }
+
+    const now = this.el("now");
+    const title = Object.assign(document.createElement("span"), { className: "now-title" });
+    const note = Object.assign(document.createElement("span"), { className: "now-note" });
+    const active = !finished && job.status !== "error";
+    if (job.item_title && active) {
+      title.textContent = playlist ? `${job.item_index}/${job.item_count}  ${job.item_title}` : job.item_title;
+    }
+    note.textContent = active ? job.note || "" : "";
+    now.replaceChildren(title, note);
+  }
+
+  /** The finished files: save links for browser downloads, plain names when they went into a folder. */
+  showFiles(jobId, files, savedInFolder = false) {
+    this.el("files").replaceChildren(...files.map((name, i) => {
       const li = document.createElement("li");
-      const a = Object.assign(document.createElement("a"), {
-        href: `/api/yt/jobs/${jobId}/files/${i}`,
-        className: "name",
-        textContent: name,
-      });
-      li.append(a);
+      li.append(savedInFolder
+        ? Object.assign(document.createElement("span"), { className: "name", textContent: name })
+        : Object.assign(document.createElement("a"), {
+          href: `/api/yt/jobs/${jobId}/files/${i}`,
+          className: "name",
+          textContent: name,
+        }));
       return li;
     }));
-  },
+  }
+
+  /** The "Save to" row: remembered between visits and shared by all three downloader pages. */
+  initSaveFolder() {
+    const input = this.el("savedir"), clear = this.el("clearsave");
+    const refresh = () => { clear.hidden = !input.value.trim(); };
+    try { input.value = localStorage.getItem("aura-savedir") || ""; } catch {}
+    refresh();
+    input.addEventListener("input", () => {
+      refresh();
+      try { localStorage.setItem("aura-savedir", input.value.trim()); } catch {}
+    });
+    clear.addEventListener("click", () => { input.value = ""; input.dispatchEvent(new Event("input")); });
+    this.el("browse").addEventListener("click", async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      try {
+        const { path } = await postJSON("/api/pick-folder", { start: input.value.trim() });
+        if (path) { input.value = path; input.dispatchEvent(new Event("input")); }
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   finish() {
     clearTimeout(this.pollTimer);
-    const btn = $("#yt-run");
+    const btn = this.el("run");
     btn.disabled = false;
     btn.lastChild.textContent = "Download";
+  }
+
+  init() {
+    this.el("fetch").addEventListener("click", () => this.fetchInfo());
+    this.el("url").addEventListener("keydown", (e) => e.key === "Enter" && this.fetchInfo());
+    this.el("run").addEventListener("click", () => this.start());
+    this.initSaveFolder();
+    this.el("quality").addEventListener("change", (e) => {
+      if (["4K (2160p)", "2K (1440p)"].includes(e.target.value)) {
+        this.el("container").value = "mkv";
+        toast("Container switched to MKV: 4K/2K streams don't fit in MP4");
+      }
+    });
+    this.resume();
+  }
+}
+
+// platform key → element-id prefix (kept in sync with PLATFORMS in yt_jobs.py)
+Object.entries({ youtube: "yt", facebook: "fb", instagram: "ig" })
+  .forEach(([platform, prefix]) => new Downloader(platform, prefix).init());
+
+// ── Video & audio tools tab ─────────────────────────────────────────────────
+
+const Media = {
+  pollTimer: null,
+  jobId: null,
+
+  el(name) { return $(`#mv-${name}`); },
+
+  refreshFields() {
+    const op = this.el("op").value;
+    $$("#tab-media [data-ops]").forEach((row) => { row.hidden = !row.dataset.ops.split(" ").includes(op); });
+  },
+
+  formData(file) {
+    const op = this.el("op").value;
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("op", op);
+    const set = (k, v) => fd.append(k, v);
+    if (op === "convert") set("format", this.el("format").value);
+    if (op === "audio") { set("format", this.el("aformat").value); set("bitrate", this.el("bitrate").value); }
+    if (op === "trim") { set("start", this.el("start").value); set("end", this.el("end").value); set("mode", this.el("mode").value); }
+    if (op === "compress") { set("level", this.el("level").value); set("max_height", this.el("height").value); }
+    if (op === "gif") { set("start", this.el("start").value); set("length", this.el("length").value); set("width", this.el("width").value); set("fps", this.el("fps").value); }
+    return fd;
+  },
+
+  busy(on) {
+    this.el("run").disabled = on;
+    this.el("cancel").hidden = !on;
+    this.el("cancel").disabled = false;
+  },
+
+  /** POST the file with real upload progress (fetch can't report it), then follow the job. */
+  start() {
+    const list = lists["mv-list"];
+    if (!list.files.length) return toast("Please add a video or audio file first.", true);
+    this.busy(true);
+    this.el("progress").hidden = false;
+    this.el("files").replaceChildren();
+    this.el("bar").style.width = "0";
+    this.el("pct").textContent = this.el("eta").textContent = this.el("rate").textContent = "—";
+    this.el("size").textContent = "—";
+    const status = this.el("status");
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/media/start");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = (e.loaded / e.total) * 100;
+      this.el("bar").style.width = `${pct.toFixed(1)}%`;
+      setStatus(status, `Uploading… ${pct.toFixed(0)}% (${fmtSize(e.loaded)} of ${fmtSize(e.total)})`, "busy");
+    };
+    xhr.onerror = () => this.fail("Couldn't reach the app. Is it still running?");
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status !== 200) return this.fail(body.error || `${xhr.status} ${xhr.statusText}`);
+      this.jobId = body.job_id;
+      this.el("bar").style.width = "0";
+      this.poll();
+    };
+    xhr.send(this.formData(list.files[0]));
+  },
+
+  fail(message) {
+    clearTimeout(this.pollTimer);
+    this.busy(false);
+    setStatus(this.el("status"), message, "err");
+    toast(message, true);
+  },
+
+  async poll() {
+    let job;
+    try {
+      const res = await fetch(`/api/media/jobs/${this.jobId}`);
+      if (!res.ok) throw new Error(await errorFrom(res));
+      job = await res.json();
+    } catch (e) {
+      return this.fail(e.message);
+    }
+    const pct = job.progress * 100;
+    this.el("bar").style.width = `${pct.toFixed(1)}%`;
+    this.el("pct").textContent = job.progress > 0 ? `${pct.toFixed(0)}%` : "—";
+    this.el("eta").textContent = fmtTime(job.eta);
+    this.el("rate").textContent = job.rate || "—";
+    const log = this.el("log");
+    log.textContent = job.log.join("\n");
+
+    if (job.status === "done") {
+      this.busy(false);
+      this.el("bar").style.width = "100%";
+      this.el("pct").textContent = "100%";
+      this.el("eta").textContent = "0:00";
+      this.el("size").textContent = fmtSize(job.size);
+      setStatus(this.el("status"), "Done! Your file is downloading. Click it below to save it again.", "ok");
+      toast("Done!");
+      const href = `/api/media/jobs/${this.jobId}/file`;
+      const li = document.createElement("li");
+      li.append(Object.assign(document.createElement("a"), { href, className: "name", textContent: job.files[0] }));
+      this.el("files").replaceChildren(li);
+      location.href = href;
+    } else if (job.status === "error") {
+      this.fail(job.error || "Something went wrong.");
+    } else {
+      setStatus(this.el("status"), job.progress > 0 ? `Working… ${pct.toFixed(0)}%` : "Working…", "busy");
+      this.pollTimer = setTimeout(() => this.poll(), 600);
+    }
+  },
+
+  async cancel() {
+    this.el("cancel").disabled = true;
+    if (this.jobId) await fetch(`/api/media/jobs/${this.jobId}/cancel`, { method: "POST" }).catch(() => {});
+  },
+
+  init() {
+    this.el("op").addEventListener("change", () => this.refreshFields());
+    this.el("run").addEventListener("click", () => this.start());
+    this.el("cancel").addEventListener("click", () => this.cancel());
+    this.refreshFields();
   },
 };
-
-$("#yt-fetch").addEventListener("click", () => YT.fetchInfo());
-YT.resume();
-$("#yt-url").addEventListener("keydown", (e) => e.key === "Enter" && YT.fetchInfo());
-$("#yt-run").addEventListener("click", () => YT.start());
-$("#yt-quality").addEventListener("change", (e) => {
-  if (["4K (2160p)", "2K (1440p)"].includes(e.target.value)) {
-    $("#yt-container").value = "mkv";
-    toast("Container switched to MKV: 4K/2K streams don't fit in MP4");
-  }
-});
+Media.init();
 
 // ── One-click ffmpeg setup ──────────────────────────────────────────────────
 
 const Deps = {
+  boxes(key) { return $$(`.dep[data-dep="${key}"]`); },
+
   async install(key) {
-    const box = $(`.dep[data-dep="${key}"]`);
-    $("[data-install]", box).disabled = true;
-    $("[data-progress]", box).hidden = false;
+    this.boxes(key).forEach((box) => {
+      $("[data-install]", box).disabled = true;
+      $("[data-progress]", box).hidden = false;
+    });
     try {
       const res = await fetch(`/api/deps/${key}/install`, { method: "POST" });
       if (!res.ok) throw new Error(await errorFrom(res));
@@ -749,8 +1099,8 @@ const Deps = {
   },
 
   async poll(key) {
-    const box = $(`.dep[data-dep="${key}"]`);
-    if (!box) return;
+    const boxes = this.boxes(key);
+    if (!boxes.length) return;
     let all;
     try {
       const res = await fetch("/api/deps");
@@ -761,24 +1111,27 @@ const Deps = {
     }
     const dep = all[key], st = dep.install;
     if (dep.ok || st.status === "done") {
-      box.remove();
-      toast(`${box.dataset.label} installed`);
-      if (!$(".dep")) $("#deps-callout").remove();
+      toast(`${boxes[0].dataset.label} installed`);
+      boxes.forEach((box) => box.remove());
+      $$(".deps-callout").forEach((c) => { if (!$(".dep", c)) c.remove(); });
       return;
     }
     if (st.status === "error") return this.failed(key, st.error);
-    $("[data-msg]", box).textContent = st.message || "Working…";
-    $("[data-progress] > div", box).style.width = `${(st.progress * 100).toFixed(1)}%`;
+    boxes.forEach((box) => {
+      $("[data-msg]", box).textContent = st.message || "Working…";
+      $("[data-progress] > div", box).style.width = `${(st.progress * 100).toFixed(1)}%`;
+    });
     setTimeout(() => this.poll(key), 600);
   },
 
   failed(key, msg) {
-    const box = $(`.dep[data-dep="${key}"]`);
-    const btn = $("[data-install]", box);
-    btn.disabled = false;
-    btn.lastChild.textContent = "Try again";
-    $("[data-progress]", box).hidden = true;
-    $("[data-msg]", box).textContent = `Install failed: ${msg}`;
+    this.boxes(key).forEach((box) => {
+      const btn = $("[data-install]", box);
+      btn.disabled = false;
+      btn.lastChild.textContent = "Try again";
+      $("[data-progress]", box).hidden = true;
+      $("[data-msg]", box).textContent = `Install failed: ${msg}`;
+    });
     toast(`Install failed: ${msg}`, true);
   },
 };
@@ -789,11 +1142,13 @@ $$(".dep").forEach((box) => {
 if ($(".dep")) {
   // Resume progress for installs already running (e.g. after a page reload).
   fetch("/api/deps").then((r) => r.json()).then((all) => {
-    $$(".dep").forEach((box) => {
-      if (all[box.dataset.dep]?.install.status === "running") {
-        $("[data-install]", box).disabled = true;
-        $("[data-progress]", box).hidden = false;
-        Deps.poll(box.dataset.dep);
+    new Set($$(".dep").map((box) => box.dataset.dep)).forEach((key) => {
+      if (all[key]?.install.status === "running") {
+        Deps.boxes(key).forEach((box) => {
+          $("[data-install]", box).disabled = true;
+          $("[data-progress]", box).hidden = false;
+        });
+        Deps.poll(key);
       }
     });
   }).catch(() => {});

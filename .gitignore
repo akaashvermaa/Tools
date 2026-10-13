@@ -1,18 +1,56 @@
 # Python
 .venv/
+venv/
+env/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Downloaded ffmpeg
-tools/
+# Downloaded helper programs (ffmpeg), made by the app in the project folder
+/tools/
 
-# PyInstaller output
-build/
-dist/
+# PyInstaller output (build.py)
+/build/
+/dist/
 *.spec
 
-# OS / editor
+# Local settings and secrets
+.env
+.env.*
+.claude/settings.local.json
+
+# Logs
+*.log
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Linux
+*~
+.directory
+.fuse_hidden*
+.nfs*
+.Trash-*
+
+# Windows
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors
 .vscode/
 .idea/
+*.swp
+*.swo

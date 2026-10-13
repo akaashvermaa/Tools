@@ -29,6 +29,8 @@ def main():
 
     print("[+] Installing build dependencies...", flush=True)
     subprocess.check_call([py, "-m", "pip", "install", "-q", "-r", "requirements.txt", "pyinstaller"])
+    if subprocess.call([py, "-m", "pip", "install", "-q", "-r", "requirements-optional.txt"]) != 0:
+        print("[!] Optional extras (HEIC photo support) couldn't be installed here; building without them.", flush=True)
 
     print("[+] Cleaning previous build...", flush=True)
     for path in ("build", "dist", f"{NAME}.spec"):
@@ -50,6 +52,8 @@ def main():
         "--collect-all", "yt_dlp_ejs",  # YouTube JS solver scripts (used if a JS runtime is installed)
         "launch.py",
     ]
+    if subprocess.call([py, "-c", "import pillow_heif"], stderr=subprocess.DEVNULL) == 0:
+        cmd[-1:-1] = ["--collect-all", "pillow_heif"]  # HEIC (iPhone photo) support: ships a native library
     if sys.platform.startswith("win"):
         cmd[3:3] = ["--icon", os.path.join("assets", "logo.ico")]
 

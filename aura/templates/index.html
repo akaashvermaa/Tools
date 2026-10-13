@@ -1,4 +1,23 @@
 <!doctype html>
+{% macro ffmpeg_callout(text) %}
+          {% if missing_deps %}
+          <div class="callout deps-callout">
+            <svg class="ic"><use href="#i-info"/></svg>
+            <div class="callout-body">
+              <div><b>ffmpeg isn't installed.</b> {{ text }} One click downloads it for your system and sets it up.</div>
+              {% for key in missing_deps %}
+              <div class="dep" data-dep="{{ key }}" data-label="{{ deps_info[key].label }}">
+                <div class="dep-row">
+                  <button class="btn primary" data-install><svg class="ic"><use href="#i-download"/></svg>Install {{ deps_info[key].label }}</button>
+                  <span class="hint" data-msg>Needed for {{ deps_info[key].purpose }} · {{ deps_info[key].size }}</span>
+                </div>
+                <div class="progress" data-progress hidden><div></div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+{% endmacro %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -35,6 +54,12 @@
       <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></symbol>
       <symbol id="i-reset" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/></symbol>
       <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-compress" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m9 13 3 2.5 3-2.5M9 17.5l3-2.5 3 2.5" transform="translate(0 -1)"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><path d="M12 15v2.5"/></symbol>
+      <symbol id="i-stamp" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m8.5 17 5-5M9 12.5h4.5V17"/></symbol>
+      <symbol id="i-resize" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></symbol>
+      <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 12h4M3 16h4M17 8h4M17 12h4M17 16h4"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.500v15l12-7.500z"/></symbol>
       <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
     </defs>
   </svg>
@@ -54,12 +79,23 @@
         <button class="nav-item" data-tab="convert"><svg class="ic"><use href="#i-convert"/></svg>Create PDF</button>
         <button class="nav-item" data-tab="merge"><svg class="ic"><use href="#i-merge"/></svg>Merge PDFs</button>
         <button class="nav-item" data-tab="split"><svg class="ic"><use href="#i-split"/></svg>Split PDF</button>
-        <button class="nav-item" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg>Reorder pages</button>
+        <button class="nav-item" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg>Organize pages</button>
+        <button class="nav-item" data-tab="compress"><svg class="ic"><use href="#i-compress"/></svg>Compress PDF</button>
+        <button class="nav-item" data-tab="protect"><svg class="ic"><use href="#i-lock"/></svg>Protect / unlock</button>
+        <button class="nav-item" data-tab="stamp"><svg class="ic"><use href="#i-stamp"/></svg>Watermark &amp; numbers</button>
 
-        <div class="nav-section">Files &amp; media</div>
+        <div class="nav-section">Images &amp; files</div>
         <button class="nav-item" data-tab="fileconv"><svg class="ic"><use href="#i-format"/></svg>Convert format</button>
+        <button class="nav-item" data-tab="imgresize"><svg class="ic"><use href="#i-resize"/></svg>Resize &amp; compress</button>
         <button class="nav-item" data-tab="editor"><svg class="ic"><use href="#i-image"/></svg>Image editor</button>
-        <button class="nav-item" data-tab="ytdl"><svg class="ic"><use href="#i-video"/></svg>YouTube downloader</button>
+
+        <div class="nav-section">Video &amp; audio</div>
+        <button class="nav-item" data-tab="media"><svg class="ic"><use href="#i-film"/></svg>Video &amp; audio tools</button>
+
+        <div class="nav-section">Downloads</div>
+        {% for key, pf in platforms.items() %}
+        <button class="nav-item" data-tab="{{ pf.prefix }}dl"><svg class="ic"><use href="#i-video"/></svg>{{ pf.name }} downloader</button>
+        {% endfor %}
       </nav>
 
       <button class="nav-item theme-toggle" id="theme-toggle">
@@ -87,10 +123,17 @@
             <button class="tile" data-tab="convert"><svg class="ic"><use href="#i-convert"/></svg><b>Create PDF</b><span>Turn images{% if docx_support %} and Word files{% endif %} into one PDF</span></button>
             <button class="tile" data-tab="merge"><svg class="ic"><use href="#i-merge"/></svg><b>Merge PDFs</b><span>Combine several PDFs into one</span></button>
             <button class="tile" data-tab="split"><svg class="ic"><use href="#i-split"/></svg><b>Split PDF</b><span>Extract pages or split into parts</span></button>
-            <button class="tile" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg><b>Reorder pages</b><span>Drag pages into a new order</span></button>
+            <button class="tile" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg><b>Organize pages</b><span>Reorder, rotate or delete pages</span></button>
+            <button class="tile" data-tab="compress"><svg class="ic"><use href="#i-compress"/></svg><b>Compress PDF</b><span>Make a PDF smaller to email or upload</span></button>
+            <button class="tile" data-tab="protect"><svg class="ic"><use href="#i-lock"/></svg><b>Protect / unlock</b><span>Add or remove a PDF password</span></button>
+            <button class="tile" data-tab="stamp"><svg class="ic"><use href="#i-stamp"/></svg><b>Watermark &amp; numbers</b><span>Stamp text and page numbers</span></button>
             <button class="tile" data-tab="fileconv"><svg class="ic"><use href="#i-format"/></svg><b>Convert format</b><span>PNG, JPG, PDF{% if docx_support %}, DOCX{% endif %}</span></button>
+            <button class="tile" data-tab="imgresize"><svg class="ic"><use href="#i-resize"/></svg><b>Resize &amp; compress</b><span>Shrink photos to a size, passport photos</span></button>
             <button class="tile" data-tab="editor"><svg class="ic"><use href="#i-image"/></svg><b>Image editor</b><span>Rotate, flip and crop images</span></button>
-            <button class="tile" data-tab="ytdl"><svg class="ic"><use href="#i-video"/></svg><b>YouTube downloader</b><span>Save videos or audio</span></button>
+            <button class="tile" data-tab="media"><svg class="ic"><use href="#i-film"/></svg><b>Video &amp; audio tools</b><span>Convert, trim, shrink, extract MP3, make GIFs</span></button>
+            {% for key, pf in platforms.items() %}
+            <button class="tile" data-tab="{{ pf.prefix }}dl"><svg class="ic"><use href="#i-video"/></svg><b>{{ pf.name }} downloader</b><span>Save {{ pf.name }} videos{% if key == 'youtube' %} or audio{% endif %}</span></button>
+            {% endfor %}
           </div>
         </section>
 
@@ -100,10 +143,10 @@
           <h1>Create PDF</h1>
           <p class="lead">Combine images{% if docx_support %} and Word documents{% endif %} into a single PDF. Pages follow the order of the list.</p>
 
-          <div class="dropzone" data-list="convert-list" data-accept=".png,.jpg,.jpeg{% if docx_support %},.docx{% endif %}">
+          <div class="dropzone" data-list="convert-list" data-accept="{% for e in image_exts %}.{{ e }}{{ ',' if not loop.last }}{% endfor %}{% if docx_support %},.docx{% endif %}">
             <svg class="ic"><use href="#i-upload"/></svg>
             <p><b>Drop files here</b> or <label class="link">browse<input type="file" multiple hidden></label></p>
-            <p class="hint">PNG, JPG{% if docx_support %}, DOCX{% endif %}</p>
+            <p class="hint">Photos (JPG, PNG, WEBP{% if heic_support %}, HEIC{% endif %}…){% if docx_support %} and Word files{% endif %}</p>
           </div>
           <ul class="file-list" id="convert-list" data-ordered></ul>
 
@@ -135,7 +178,7 @@
                   {% endfor %}
                 </select>
               </span></label>
-            <label class="prop" id="fc-quality-field"><span class="prop-name">JPG quality</span>
+            <label class="prop" id="fc-quality-field"><span class="prop-name">Quality</span>
               <span class="prop-value"><input type="range" id="fc-quality" min="10" max="100" value="92"> <span id="fc-quality-val" class="hint">92</span></span></label>
             <label class="prop" id="fc-dpi-field"><span class="prop-name">Resolution</span>
               <span class="prop-value">
@@ -221,8 +264,8 @@
         <!-- REORDER -->
         <section id="tab-reorder" class="tab wide">
           <div class="page-icon"><svg class="ic"><use href="#i-reorder"/></svg></div>
-          <h1>Reorder pages</h1>
-          <p class="lead">Drag pages into the order you want, then download the new PDF.</p>
+          <h1>Organize pages</h1>
+          <p class="lead">Drag pages into the order you want. Rotate or delete any page, then download the new PDF.</p>
 
           <div class="dropzone" id="reorder-drop" data-accept=".pdf" data-single>
             <svg class="ic"><use href="#i-upload"/></svg>
@@ -240,6 +283,170 @@
           <div class="actions">
             <button class="btn primary" id="reorder-run" disabled><svg class="ic"><use href="#i-download"/></svg>Save PDF</button>
             <span class="status" id="reorder-status"></span>
+          </div>
+        </section>
+
+        <!-- COMPRESS -->
+        <section id="tab-compress" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-compress"/></svg></div>
+          <h1>Compress PDF</h1>
+          <p class="lead">Shrink a PDF so it fits an email or an upload form. Text stays sharp; large photos are reduced.</p>
+
+          <div class="dropzone" data-list="compress-list" data-accept=".pdf" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a PDF here</b> or <label class="link">browse<input type="file" hidden></label></p>
+          </div>
+          <ul class="file-list" id="compress-list"></ul>
+
+          <div class="choice-group">
+            <label class="choice">
+              <input type="radio" name="compress-level" value="Light">
+              <span class="choice-body"><b>Light</b><span class="hint">Tidies the file without touching images. Best quality, smallest saving.</span></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="compress-level" value="Balanced" checked>
+              <span class="choice-body"><b>Balanced</b><span class="hint">Images reduced to about 150 DPI. Looks the same on screen and in print.</span></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="compress-level" value="Strong">
+              <span class="choice-body"><b>Strong</b><span class="hint">Images reduced to about 96 DPI. Smallest file; fine for reading on screen.</span></span>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="compress-run"><svg class="ic"><use href="#i-download"/></svg>Compress PDF</button>
+            <span class="status" id="compress-status"></span>
+          </div>
+        </section>
+
+        <!-- PROTECT / UNLOCK -->
+        <section id="tab-protect" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-lock"/></svg></div>
+          <h1>Protect / unlock PDF</h1>
+          <p class="lead">Add a password to a PDF, or remove the password from one you can already open. The password never leaves this computer.</p>
+
+          <div class="dropzone" data-list="protect-list" data-accept=".pdf" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a PDF here</b> or <label class="link">browse<input type="file" hidden></label></p>
+          </div>
+          <ul class="file-list" id="protect-list"></ul>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Action</span>
+              <span class="prop-value">
+                <select id="protect-mode">
+                  <option value="protect">Add a password</option>
+                  <option value="unlock">Remove the password</option>
+                </select>
+              </span></label>
+            <label class="prop"><span class="prop-name">Password</span>
+              <span class="prop-value">
+                <input type="password" id="protect-password" autocomplete="off" placeholder="Password">
+                <span class="hint" id="protect-hint">Needed to open the PDF. If you forget it, it can't be recovered.</span>
+              </span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="protect-run"><svg class="ic"><use href="#i-download"/></svg><span id="protect-run-label">Protect PDF</span></button>
+            <span class="status" id="protect-status"></span>
+          </div>
+        </section>
+
+        <!-- WATERMARK & PAGE NUMBERS -->
+        <section id="tab-stamp" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-stamp"/></svg></div>
+          <h1>Watermark &amp; page numbers</h1>
+          <p class="lead">Stamp a diagonal text watermark and/or numbers on every page. Use either one or both.</p>
+
+          <div class="dropzone" data-list="stamp-list" data-accept=".pdf" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a PDF here</b> or <label class="link">browse<input type="file" hidden></label></p>
+          </div>
+          <ul class="file-list" id="stamp-list"></ul>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Watermark text</span>
+              <span class="prop-value"><input type="text" id="stamp-text" placeholder="e.g. CONFIDENTIAL" maxlength="60"></span></label>
+            <label class="prop"><span class="prop-name">Size</span>
+              <span class="prop-value"><input type="range" id="stamp-size" min="20" max="150" value="64"> <span class="hint" id="stamp-size-val">64</span></span></label>
+            <label class="prop"><span class="prop-name">Opacity</span>
+              <span class="prop-value"><input type="range" id="stamp-opacity" min="5" max="100" value="20"> <span class="hint" id="stamp-opacity-val">20%</span></span></label>
+            <label class="prop"><span class="prop-name">Page numbers</span>
+              <span class="prop-value">
+                <select id="stamp-numbering">
+                  <option value="">None</option>
+                  {% for n in number_formats %}<option>{{ n }}</option>{% endfor %}
+                </select>
+                <select id="stamp-position">{% for n in number_positions %}<option>{{ n }}</option>{% endfor %}</select>
+              </span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="stamp-run"><svg class="ic"><use href="#i-download"/></svg>Stamp PDF</button>
+            <span class="status" id="stamp-status"></span>
+          </div>
+        </section>
+
+        <!-- RESIZE & COMPRESS IMAGES -->
+        <section id="tab-imgresize" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-resize"/></svg></div>
+          <h1>Resize &amp; compress images</h1>
+          <p class="lead">Make photos smaller for email, forms and websites. Add one or many; several come back as a .zip.</p>
+
+          <div class="dropzone" data-list="ir-list" data-accept="{% for e in image_exts %}.{{ e }}{{ ',' if not loop.last }}{% endfor %}">
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop photos here</b> or <label class="link">browse<input type="file" multiple hidden></label></p>
+            <p class="hint">JPG, PNG, WEBP{% if heic_support %}, HEIC (iPhone){% endif %}, BMP, TIFF, GIF</p>
+          </div>
+          <ul class="file-list" id="ir-list"></ul>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Preset</span>
+              <span class="prop-value">
+                <select id="ir-preset">
+                  <option value="">Custom</option>
+                  {% for name, p in image_presets.items() %}<option value="{{ name }}" data-mode="{{ p[0] }}" data-w="{{ p[1] }}" data-h="{{ p[2] }}">{{ name }}</option>{% endfor %}
+                </select>
+              </span></label>
+            <label class="prop"><span class="prop-name">Resize</span>
+              <span class="prop-value">
+                <select id="ir-mode">
+                  <option value="keep">Keep the size (just compress)</option>
+                  <option value="percent">Shrink by percent</option>
+                  <option value="fit">Fit inside a box</option>
+                  <option value="exact">Exact size (crops the edges)</option>
+                </select>
+              </span></label>
+            <label class="prop" id="ir-percent-field"><span class="prop-name">Percent</span>
+              <span class="prop-value"><input type="range" id="ir-percent" min="5" max="100" value="50"> <span id="ir-percent-val" class="hint">50%</span></span></label>
+            <label class="prop" id="ir-box-field"><span class="prop-name">Pixels</span>
+              <span class="prop-value">
+                <input type="number" id="ir-width" min="0" max="12000" placeholder="Width" class="narrow-num"> ×
+                <input type="number" id="ir-height" min="0" max="12000" placeholder="Height" class="narrow-num">
+                <span class="hint" id="ir-box-hint"></span>
+              </span></label>
+            <label class="prop"><span class="prop-name">Format</span>
+              <span class="prop-value">
+                <select id="ir-format">
+                  <option value="same">Same as the original</option>
+                  <option value="jpg">JPG</option>
+                  <option value="png">PNG</option>
+                  <option value="webp">WebP</option>
+                </select>
+              </span></label>
+            <label class="prop" id="ir-quality-field"><span class="prop-name">Quality</span>
+              <span class="prop-value"><input type="range" id="ir-quality" min="10" max="100" value="85"> <span id="ir-quality-val" class="hint">85</span></span></label>
+            <label class="prop"><span class="prop-name">Limit file size</span>
+              <span class="prop-value">
+                <input type="number" id="ir-maxkb" min="0" placeholder="No limit" class="narrow-num"> <span class="hint">KB per photo. For upload forms that say "max 200 KB".</span>
+              </span></label>
+            <label class="prop"><span class="prop-name">Privacy</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="ir-strip" checked> <span class="hint">Remove location and camera info from the photo</span></span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="ir-run"><svg class="ic"><use href="#i-download"/></svg>Resize &amp; save</button>
+            <span class="status" id="ir-status"></span>
           </div>
         </section>
 
@@ -268,83 +475,175 @@
           </div>
         </section>
 
-        <!-- YOUTUBE -->
-        <section id="tab-ytdl" class="tab">
-          <div class="page-icon"><svg class="ic"><use href="#i-video"/></svg></div>
-          <h1>YouTube downloader</h1>
-          <p class="lead">Paste a link, choose a quality, and download.</p>
+        <!-- VIDEO & AUDIO TOOLS -->
+        <section id="tab-media" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-film"/></svg></div>
+          <h1>Video &amp; audio tools</h1>
+          <p class="lead">Convert, trim, shrink or pull the sound out of a video. Your file stays on this computer and is never changed.</p>
 
-          {% if missing_deps %}
-          <div class="callout" id="deps-callout">
-            <svg class="ic"><use href="#i-info"/></svg>
-            <div class="callout-body">
-              <div><b>ffmpeg isn't installed.</b> Downloads still work, but HD video, MP3 and subtitles need it. One click downloads it for your system and sets it up.</div>
-              {% for key in missing_deps %}
-              <div class="dep" data-dep="{{ key }}" data-label="{{ deps_info[key].label }}">
-                <div class="dep-row">
-                  <button class="btn primary" data-install><svg class="ic"><use href="#i-download"/></svg>Install {{ deps_info[key].label }}</button>
-                  <span class="hint" data-msg>Needed for {{ deps_info[key].purpose }} · {{ deps_info[key].size }}</span>
-                </div>
-                <div class="progress" data-progress hidden><div></div></div>
-              </div>
-              {% endfor %}
-            </div>
+          {{ ffmpeg_callout("These tools need it.") }}
+
+          <div class="dropzone" id="mv-drop" data-list="mv-list" data-accept="{% for e in media_exts %}.{{ e }}{{ ',' if not loop.last }}{% endfor %}" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a video or audio file here</b> or <label class="link">browse<input type="file" hidden></label></p>
+            <p class="hint">MP4, MOV, MKV, WEBM, AVI, MP3, M4A, WAV and more</p>
           </div>
-          {% endif %}
+          <ul class="file-list" id="mv-list"></ul>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">What to do</span>
+              <span class="prop-value">
+                <select id="mv-op">{% for key, label in media_ops.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select>
+              </span></label>
+
+            <label class="prop" data-ops="convert"><span class="prop-name">Format</span>
+              <span class="prop-value">
+                <select id="mv-format">{% for f in convert_formats %}<option>{{ f }}</option>{% endfor %}</select>
+                <span class="hint">MP4 plays everywhere. MP3/M4A/WAV keep only the sound.</span>
+              </span></label>
+
+            <label class="prop" data-ops="audio"><span class="prop-name">Audio format</span>
+              <span class="prop-value">
+                <select id="mv-aformat"><option>mp3</option><option>m4a</option><option>wav</option></select>
+                <select id="mv-bitrate">{% for b in audio_bitrates %}<option value="{{ b }}"{% if b == 192 %} selected{% endif %}>{{ b }} kbps</option>{% endfor %}</select>
+                <span class="hint">Bitrate is ignored for WAV.</span>
+              </span></label>
+
+            <label class="prop" data-ops="trim gif"><span class="prop-name">Start at</span>
+              <span class="prop-value"><input type="text" id="mv-start" placeholder="0:00" value="0:00" class="narrow-num">
+                <span class="hint">Seconds (90) or minutes:seconds (1:30)</span></span></label>
+            <label class="prop" data-ops="trim"><span class="prop-name">End at</span>
+              <span class="prop-value"><input type="text" id="mv-end" placeholder="to the end" class="narrow-num">
+                <span class="hint">Leave empty to keep everything after the start</span></span></label>
+            <label class="prop" data-ops="trim"><span class="prop-name">Cutting</span>
+              <span class="prop-value">
+                <select id="mv-mode">
+                  <option value="fast">Fast: instant, no quality loss (may start a moment early)</option>
+                  <option value="precise">Precise: exact cut, re-encodes as MP4 (slower)</option>
+                </select>
+              </span></label>
+
+            <label class="prop" data-ops="compress"><span class="prop-name">Smaller by</span>
+              <span class="prop-value">
+                <select id="mv-level">{% for l in compress_levels %}<option{% if l == 'Balanced' %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+                <span class="hint">Light keeps the picture sharp, Strong makes the smallest file.</span>
+              </span></label>
+            <label class="prop" data-ops="compress"><span class="prop-name">Largest size</span>
+              <span class="prop-value">
+                <select id="mv-height">{% for h in max_heights %}<option>{{ h }}</option>{% endfor %}</select>
+                <span class="hint">Never enlarges a smaller video.</span>
+              </span></label>
+
+            <label class="prop" data-ops="gif"><span class="prop-name">Length</span>
+              <span class="prop-value"><input type="number" id="mv-length" min="1" max="30" value="5" class="narrow-num"> <span class="hint">seconds (up to 30)</span></span></label>
+            <label class="prop" data-ops="gif"><span class="prop-name">Width</span>
+              <span class="prop-value"><input type="number" id="mv-width" min="120" max="1280" value="480" class="narrow-num"> <span class="hint">pixels</span></span></label>
+            <label class="prop" data-ops="gif"><span class="prop-name">Smoothness</span>
+              <span class="prop-value"><input type="number" id="mv-fps" min="5" max="30" value="12" class="narrow-num"> <span class="hint">frames per second. Higher is smoother and bigger.</span></span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="mv-run"><svg class="ic"><use href="#i-play"/></svg>Start</button>
+            <button class="btn" id="mv-cancel" hidden>Cancel</button>
+            <span class="status" id="mv-status"></span>
+          </div>
+
+          <div class="progress-block" id="mv-progress" hidden>
+            <div class="progress"><div id="mv-bar"></div></div>
+            <div class="stats">
+              <div><span>Progress</span><b id="mv-pct">—</b></div>
+              <div><span>Time left</span><b id="mv-eta">—</b></div>
+              <div><span>Speed</span><b id="mv-rate">—</b></div>
+              <div><span>Result</span><b id="mv-size">—</b></div>
+            </div>
+            <ul class="file-list" id="mv-files"></ul>
+            <details class="toggle">
+              <summary>Details</summary>
+              <pre class="log" id="mv-log"></pre>
+            </details>
+          </div>
+        </section>
+
+        <!-- VIDEO DOWNLOADERS (YouTube, Facebook, Instagram) -->
+        {% for key, pf in platforms.items() %}{% set p = pf.prefix %}
+        <section id="tab-{{ p }}dl" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-video"/></svg></div>
+          <h1>{{ pf.name }} downloader</h1>
+          <p class="lead">{{ pf.lead }}</p>
+
+          {{ ffmpeg_callout("Downloads still work, but HD video, MP3 and subtitles need it.") }}
 
           <div class="url-box">
             <svg class="ic"><use href="#i-link"/></svg>
-            <input type="url" id="yt-url" placeholder="https://www.youtube.com/watch?v=…">
-            <button class="btn" id="yt-fetch">Preview</button>
+            <input type="url" id="{{ p }}-url" placeholder="{{ pf.placeholder }}">
+            <button class="btn" id="{{ p }}-fetch">Preview</button>
           </div>
 
-          <div class="yt-info" id="yt-info">
-            <img id="yt-thumb" alt="" hidden>
+          <div class="yt-info" id="{{ p }}-info">
+            <img id="{{ p }}-thumb" alt="" hidden>
             <div>
-              <div id="yt-title" class="strong">No video loaded</div>
-              <div id="yt-meta" class="hint">Paste a link and press Preview to check it first (optional)</div>
+              <div id="{{ p }}-title" class="strong">No video loaded</div>
+              <div id="{{ p }}-meta" class="hint">Paste a link and press Preview to check it first (optional)</div>
             </div>
           </div>
 
           <div class="props">
             <label class="prop"><span class="prop-name">Quality</span>
-              <span class="prop-value"><select id="yt-quality">{% for q in qualities %}<option>{{ q }}</option>{% endfor %}</select></span></label>
+              <span class="prop-value"><select id="{{ p }}-quality">{% for q in qualities %}<option>{{ q }}</option>{% endfor %}</select></span></label>
             <label class="prop"><span class="prop-name">Format</span>
-              <span class="prop-value"><select id="yt-container">{% for c in containers %}<option>{{ c }}</option>{% endfor %}</select></span></label>
+              <span class="prop-value"><select id="{{ p }}-container">{% for c in containers %}<option>{{ c }}</option>{% endfor %}</select></span></label>
+            {% if pf.subtitles %}
             <label class="prop"><span class="prop-name">Subtitles</span>
-              <span class="prop-value"><input type="checkbox" class="switch" id="yt-subs"> <span class="hint">Download subtitles too</span></span></label>
+              <span class="prop-value"><input type="checkbox" class="switch" id="{{ p }}-subs"> <span class="hint">Download subtitles too</span></span></label>
+            {% endif %}
             <label class="prop"><span class="prop-name">Browser cookies</span>
               <span class="prop-value">
-                <select id="yt-cookies">
+                <select id="{{ p }}-cookies">
                   <option value="">Don't use</option>
                   {% for b in cookie_browsers %}<option value="{{ b }}">{{ b | capitalize }}</option>{% endfor %}
                 </select>
-                <span class="hint">Use only if YouTube asks you to sign in. Firefox works best.</span>
+                <span class="hint">{{ pf.cookie_hint }}</span>
               </span></label>
-            <label class="prop"><span class="prop-name">Playlist</span>
-              <span class="prop-value"><input type="checkbox" class="switch" id="yt-playlist"> <span class="hint">Download the whole playlist</span></span></label>
+            <label class="prop"><span class="prop-name">{{ "Playlist" if key == "youtube" else "Multiple videos" }}</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="{{ p }}-playlist"> <span class="hint">{{ pf.playlist_hint }}</span></span></label>
+            <label class="prop"><span class="prop-name">Pace</span>
+              <span class="prop-value">
+                <select id="{{ p }}-pace">{% for n in paces %}<option{% if n == default_pace %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+                <span class="hint">For playlists: pauses between videos so {{ pf.name }} doesn't block you. Gentle is slowest and safest.</span>
+              </span></label>
+            <label class="prop"><span class="prop-name">Save to</span>
+              <span class="prop-value">
+                <span class="path-field">
+                  <input type="text" id="{{ p }}-savedir" class="path-input" placeholder="Ask my browser (Downloads folder)" spellcheck="false" autocomplete="off">
+                  <button type="button" class="btn" id="{{ p }}-browse">Browse…</button>
+                  <button type="button" class="btn ghost" id="{{ p }}-clearsave" hidden>Clear</button>
+                </span>
+                <span class="hint">Pick a folder to save straight into it, which is best for playlists. Leave it empty to download through your browser.</span>
+              </span></label>
           </div>
 
           <div class="actions">
-            <button class="btn primary" id="yt-run"><svg class="ic"><use href="#i-download"/></svg>Download</button>
-            <span class="status" id="yt-status"></span>
+            <button class="btn primary" id="{{ p }}-run"><svg class="ic"><use href="#i-download"/></svg>Download</button>
+            <span class="status" id="{{ p }}-status"></span>
           </div>
 
-          <div class="progress-block" id="yt-progress" hidden>
-            <div class="progress"><div id="yt-bar"></div></div>
+          <div class="progress-block" id="{{ p }}-progress" hidden>
+            <div class="now" id="{{ p }}-now"></div>
+            <div class="progress"><div id="{{ p }}-bar"></div></div>
             <div class="stats">
-              <div><span>Speed</span><b id="yt-speed">—</b></div>
-              <div><span>Time left</span><b id="yt-eta">—</b></div>
-              <div><span>Size</span><b id="yt-size">—</b></div>
-              <div><span>Downloaded</span><b id="yt-done">—</b></div>
+              <div><span>Speed</span><b id="{{ p }}-speed">—</b></div>
+              <div><span>Time left</span><b id="{{ p }}-eta">—</b></div>
+              <div><span id="{{ p }}-size-label">Size</span><b id="{{ p }}-size">—</b></div>
+              <div><span>Downloaded</span><b id="{{ p }}-done">—</b></div>
             </div>
-            <ul class="file-list" id="yt-files"></ul>
+            <ul class="file-list" id="{{ p }}-files"></ul>
             <details class="toggle">
               <summary>Details</summary>
-              <pre class="log" id="yt-log"></pre>
+              <pre class="log" id="{{ p }}-log"></pre>
             </details>
           </div>
         </section>
+        {% endfor %}
       </main>
     </div>
   </div>

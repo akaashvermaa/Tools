@@ -1,0 +1,3 @@
+# Nice-to-haves. launch.py installs these separately: if one has no build for your system,
+# the app still starts and just lacks that feature.
+pillow-heif   # open HEIC/HEIF photos from iPhones
