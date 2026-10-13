@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aura Tools</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    // Apply saved theme before paint to avoid a flash.
+    try { const t = localStorage.getItem("aura-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+</head>
+<body>
+  <!-- Icon sprite (line icons, 24×24) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></symbol>
+      <symbol id="i-convert" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15h6"/></symbol>
+      <symbol id="i-format" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+      <symbol id="i-merge" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+      <symbol id="i-split" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></symbol>
+      <symbol id="i-reorder" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+      <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+      <symbol id="i-rotl" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+      <symbol id="i-rotr" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+      <symbol id="i-fliph" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7 3 12l5 5z"/><path d="m16 7 5 5-5 5z"/></symbol>
+      <symbol id="i-flipv" viewBox="0 0 24 24"><path d="M3 12h18"/><path d="m7 8 5-5 5 5z"/><path d="m7 16 5 5 5-5z"/></symbol>
+      <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- ─────────── Sidebar ─────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="workspace">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="" class="ws-logo">
+        <span class="ws-name">Aura Tools</span>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-tab="home"><svg class="ic"><use href="#i-home"/></svg>Home</button>
+
+        <div class="nav-section">PDF</div>
+        <button class="nav-item" data-tab="convert"><svg class="ic"><use href="#i-convert"/></svg>Create PDF</button>
+        <button class="nav-item" data-tab="merge"><svg class="ic"><use href="#i-merge"/></svg>Merge PDFs</button>
+        <button class="nav-item" data-tab="split"><svg class="ic"><use href="#i-split"/></svg>Split PDF</button>
+        <button class="nav-item" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg>Reorder pages</button>
+
+        <div class="nav-section">Files &amp; media</div>
+        <button class="nav-item" data-tab="fileconv"><svg class="ic"><use href="#i-format"/></svg>Convert format</button>
+        <button class="nav-item" data-tab="editor"><svg class="ic"><use href="#i-image"/></svg>Image editor</button>
+        <button class="nav-item" data-tab="ytdl"><svg class="ic"><use href="#i-video"/></svg>YouTube downloader</button>
+      </nav>
+
+      <button class="nav-item theme-toggle" id="theme-toggle">
+        <svg class="ic"><use href="#i-moon"/></svg><span>Dark mode</span>
+      </button>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <!-- ─────────── Main ─────────── -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open menu"><svg class="ic"><use href="#i-menu"/></svg></button>
+        <div class="crumbs"><span>Aura Tools</span><span class="sep">/</span><span id="crumb">Home</span></div>
+      </header>
+
+      <main class="content">
+
+        <!-- HOME -->
+        <section id="tab-home" class="tab">
+          <div class="page-icon"><img src="{{ url_for('static', filename='logo.png') }}" alt=""></div>
+          <h1>Aura Tools</h1>
+          <p class="lead">Everyday tools for PDFs, images and videos. Everything runs on your computer — pick a tool to start.</p>
+
+          <div class="gallery">
+            <button class="tile" data-tab="convert"><svg class="ic"><use href="#i-convert"/></svg><b>Create PDF</b><span>Turn images{% if docx_support %} and Word files{% endif %} into one PDF</span></button>
+            <button class="tile" data-tab="merge"><svg class="ic"><use href="#i-merge"/></svg><b>Merge PDFs</b><span>Combine several PDFs into one</span></button>
+            <button class="tile" data-tab="split"><svg class="ic"><use href="#i-split"/></svg><b>Split PDF</b><span>Extract pages or split into parts</span></button>
+            <button class="tile" data-tab="reorder"><svg class="ic"><use href="#i-reorder"/></svg><b>Reorder pages</b><span>Drag pages into a new order</span></button>
+            <button class="tile" data-tab="fileconv"><svg class="ic"><use href="#i-format"/></svg><b>Convert format</b><span>PNG, JPG, PDF{% if docx_support %}, DOCX{% endif %}</span></button>
+            <button class="tile" data-tab="editor"><svg class="ic"><use href="#i-image"/></svg><b>Image editor</b><span>Rotate, flip and crop images</span></button>
+            <button class="tile" data-tab="ytdl"><svg class="ic"><use href="#i-video"/></svg><b>YouTube downloader</b><span>Save videos or audio</span></button>
+          </div>
+        </section>
+
+        <!-- CREATE PDF -->
+        <section id="tab-convert" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-convert"/></svg></div>
+          <h1>Create PDF</h1>
+          <p class="lead">Combine images{% if docx_support %} and Word documents{% endif %} into a single PDF. Pages follow the order of the list.</p>
+
+          <div class="dropzone" data-list="convert-list" data-accept=".png,.jpg,.jpeg{% if docx_support %},.docx{% endif %}">
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop files here</b> or <label class="link">browse<input type="file" multiple hidden></label></p>
+            <p class="hint">PNG, JPG{% if docx_support %}, DOCX{% endif %}</p>
+          </div>
+          <ul class="file-list" id="convert-list" data-ordered></ul>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Fit to A4</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="convert-fit" checked> <span class="hint">Center each image on an A4 page</span></span></label>
+            <label class="prop"><span class="prop-name">Compress</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="convert-compress"> <span class="hint">Smaller file, slightly lower quality</span></span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="convert-run"><svg class="ic"><use href="#i-download"/></svg>Create PDF</button>
+            <span class="status" id="convert-status"></span>
+          </div>
+        </section>
+
+        <!-- CONVERT FORMAT -->
+        <section id="tab-fileconv" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-format"/></svg></div>
+          <h1>Convert format</h1>
+          <p class="lead">Change files from one format to another. Choose what you want to convert, then add files.</p>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Conversion</span>
+              <span class="prop-value">
+                <select id="fc-route">
+                  {% for id, r in routes.items() %}
+                  <option value="{{ id }}" data-accept=".{{ r[1] | join(',.') }}" data-out="{{ r[2] }}">{{ r[0] }}</option>
+                  {% endfor %}
+                </select>
+              </span></label>
+            <label class="prop" id="fc-quality-field"><span class="prop-name">JPG quality</span>
+              <span class="prop-value"><input type="range" id="fc-quality" min="10" max="100" value="92"> <span id="fc-quality-val" class="hint">92</span></span></label>
+            <label class="prop" id="fc-dpi-field"><span class="prop-name">Resolution</span>
+              <span class="prop-value">
+                <select id="fc-dpi">
+                  <option value="72">72 DPI · screen</option>
+                  <option value="150" selected>150 DPI · balanced</option>
+                  <option value="200">200 DPI · sharp</option>
+                  <option value="300">300 DPI · print</option>
+                </select>
+              </span></label>
+            <label class="prop" id="fc-merge-field"><span class="prop-name">Single file</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="fc-merge" checked> <span class="hint">Merge everything into one PDF</span></span></label>
+          </div>
+
+          <div class="dropzone" data-list="fc-list" data-accept=".png,.jpg,.jpeg">
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop files here</b> or <label class="link">browse<input type="file" multiple hidden></label></p>
+            <p class="hint" id="fc-hint"></p>
+          </div>
+          <ul class="file-list" id="fc-list" data-ordered></ul>
+
+          <div class="actions">
+            <button class="btn primary" id="fc-run"><svg class="ic"><use href="#i-download"/></svg>Convert</button>
+            <span class="status" id="fc-status"></span>
+          </div>
+        </section>
+
+        <!-- MERGE -->
+        <section id="tab-merge" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-merge"/></svg></div>
+          <h1>Merge PDFs</h1>
+          <p class="lead">Combine several PDFs into one. Use the arrows to change the order.</p>
+
+          <div class="dropzone" data-list="merge-list" data-accept=".pdf">
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop PDFs here</b> or <label class="link">browse<input type="file" multiple hidden></label></p>
+            <p class="hint">Add two or more</p>
+          </div>
+          <ul class="file-list" id="merge-list" data-ordered></ul>
+
+          <div class="actions">
+            <button class="btn primary" id="merge-run"><svg class="ic"><use href="#i-download"/></svg>Merge PDFs</button>
+            <span class="status" id="merge-status"></span>
+          </div>
+        </section>
+
+        <!-- SPLIT -->
+        <section id="tab-split" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-split"/></svg></div>
+          <h1>Split PDF</h1>
+          <p class="lead">Pull out specific pages, or cut a PDF into equal parts.</p>
+
+          <div class="dropzone" data-list="split-list" data-accept=".pdf" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a PDF here</b> or <label class="link">browse<input type="file" hidden></label></p>
+          </div>
+          <ul class="file-list" id="split-list"></ul>
+
+          <div class="choice-group">
+            <label class="choice">
+              <input type="radio" name="split-mode" value="range" checked>
+              <span class="choice-body">
+                <b>Extract pages</b>
+                <span class="hint">Pick pages like 1-3, 5, 8-10 — you get one PDF</span>
+                <input type="text" id="split-range" placeholder="1-3, 5, 8-10">
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="split-mode" value="every_n">
+              <span class="choice-body">
+                <b>Split into parts</b>
+                <span class="hint">Every <input type="number" id="split-n" min="1" value="1" class="narrow"> page(s) becomes its own PDF (downloaded as a .zip)</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="split-run"><svg class="ic"><use href="#i-download"/></svg>Split PDF</button>
+            <span class="status" id="split-status"></span>
+          </div>
+        </section>
+
+        <!-- REORDER -->
+        <section id="tab-reorder" class="tab wide">
+          <div class="page-icon"><svg class="ic"><use href="#i-reorder"/></svg></div>
+          <h1>Reorder pages</h1>
+          <p class="lead">Drag pages into the order you want, then download the new PDF.</p>
+
+          <div class="dropzone" id="reorder-drop" data-accept=".pdf" data-single>
+            <svg class="ic"><use href="#i-upload"/></svg>
+            <p><b>Drop a PDF here</b> or <label class="link">browse<input type="file" hidden></label></p>
+          </div>
+
+          <div class="toolbar" id="reorder-tools" hidden>
+            <span id="reorder-name" class="hint"></span>
+            <span class="spacer"></span>
+            <button class="btn" id="reorder-reverse">Reverse</button>
+            <button class="btn" id="reorder-reset">Reset</button>
+          </div>
+          <div class="page-grid" id="reorder-grid"></div>
+
+          <div class="actions">
+            <button class="btn primary" id="reorder-run" disabled><svg class="ic"><use href="#i-download"/></svg>Save PDF</button>
+            <span class="status" id="reorder-status"></span>
+          </div>
+        </section>
+
+        <!-- IMAGE EDITOR -->
+        <section id="tab-editor" class="tab wide">
+          <div class="page-icon"><svg class="ic"><use href="#i-image"/></svg></div>
+          <h1>Image editor</h1>
+          <p class="lead">Rotate, flip and crop. To crop, drag a box on the image and press Crop.</p>
+
+          <div class="toolbar editor-bar">
+            <label class="btn primary"><svg class="ic"><use href="#i-upload"/></svg>Open image<input type="file" id="ed-open" accept="image/png,image/jpeg,image/webp" hidden></label>
+            <span class="divider"></span>
+            <button class="btn ghost" data-ed="rotl" disabled title="Rotate left"><svg class="ic"><use href="#i-rotl"/></svg><span>Left</span></button>
+            <button class="btn ghost" data-ed="rotr" disabled title="Rotate right"><svg class="ic"><use href="#i-rotr"/></svg><span>Right</span></button>
+            <button class="btn ghost" data-ed="fliph" disabled title="Flip horizontal"><svg class="ic"><use href="#i-fliph"/></svg><span>Flip H</span></button>
+            <button class="btn ghost" data-ed="flipv" disabled title="Flip vertical"><svg class="ic"><use href="#i-flipv"/></svg><span>Flip V</span></button>
+            <button class="btn ghost" data-ed="crop" disabled title="Crop to selection"><svg class="ic"><use href="#i-crop"/></svg><span>Crop</span></button>
+            <button class="btn ghost" data-ed="reset" disabled title="Undo all changes"><svg class="ic"><use href="#i-reset"/></svg><span>Reset</span></button>
+            <span class="spacer"></span>
+            <select id="ed-format" aria-label="Save format"><option value="png">PNG</option><option value="jpeg">JPG</option></select>
+            <button class="btn" data-ed="save" disabled><svg class="ic"><use href="#i-download"/></svg>Download</button>
+          </div>
+          <div class="editor-stage" id="ed-stage">
+            <canvas id="ed-canvas"></canvas>
+            <p class="hint" id="ed-empty">Open an image or drop one here</p>
+          </div>
+        </section>
+
+        <!-- YOUTUBE -->
+        <section id="tab-ytdl" class="tab">
+          <div class="page-icon"><svg class="ic"><use href="#i-video"/></svg></div>
+          <h1>YouTube downloader</h1>
+          <p class="lead">Paste a link, choose a quality, and download.</p>
+
+          {% if missing_deps %}
+          <div class="callout" id="deps-callout">
+            <svg class="ic"><use href="#i-info"/></svg>
+            <div class="callout-body">
+              <div><b>ffmpeg isn't installed.</b> Downloads still work, but HD video, MP3 and subtitles need it. One click downloads it for your system and sets it up.</div>
+              {% for key in missing_deps %}
+              <div class="dep" data-dep="{{ key }}" data-label="{{ deps_info[key].label }}">
+                <div class="dep-row">
+                  <button class="btn primary" data-install><svg class="ic"><use href="#i-download"/></svg>Install {{ deps_info[key].label }}</button>
+                  <span class="hint" data-msg>Needed for {{ deps_info[key].purpose }} · {{ deps_info[key].size }}</span>
+                </div>
+                <div class="progress" data-progress hidden><div></div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="url-box">
+            <svg class="ic"><use href="#i-link"/></svg>
+            <input type="url" id="yt-url" placeholder="https://www.youtube.com/watch?v=…">
+            <button class="btn" id="yt-fetch">Preview</button>
+          </div>
+
+          <div class="yt-info" id="yt-info">
+            <img id="yt-thumb" alt="" hidden>
+            <div>
+              <div id="yt-title" class="strong">No video loaded</div>
+              <div id="yt-meta" class="hint">Paste a link and press Preview to check it first (optional)</div>
+            </div>
+          </div>
+
+          <div class="props">
+            <label class="prop"><span class="prop-name">Quality</span>
+              <span class="prop-value"><select id="yt-quality">{% for q in qualities %}<option>{{ q }}</option>{% endfor %}</select></span></label>
+            <label class="prop"><span class="prop-name">Format</span>
+              <span class="prop-value"><select id="yt-container">{% for c in containers %}<option>{{ c }}</option>{% endfor %}</select></span></label>
+            <label class="prop"><span class="prop-name">Subtitles</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="yt-subs"> <span class="hint">Download subtitles too</span></span></label>
+            <label class="prop"><span class="prop-name">Browser cookies</span>
+              <span class="prop-value">
+                <select id="yt-cookies">
+                  <option value="">Don't use</option>
+                  {% for b in cookie_browsers %}<option value="{{ b }}">{{ b | capitalize }}</option>{% endfor %}
+                </select>
+                <span class="hint">Use only if YouTube asks you to sign in. Firefox works best.</span>
+              </span></label>
+            <label class="prop"><span class="prop-name">Playlist</span>
+              <span class="prop-value"><input type="checkbox" class="switch" id="yt-playlist"> <span class="hint">Download the whole playlist</span></span></label>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="yt-run"><svg class="ic"><use href="#i-download"/></svg>Download</button>
+            <span class="status" id="yt-status"></span>
+          </div>
+
+          <div class="progress-block" id="yt-progress" hidden>
+            <div class="progress"><div id="yt-bar"></div></div>
+            <div class="stats">
+              <div><span>Speed</span><b id="yt-speed">—</b></div>
+              <div><span>Time left</span><b id="yt-eta">—</b></div>
+              <div><span>Size</span><b id="yt-size">—</b></div>
+              <div><span>Downloaded</span><b id="yt-done">—</b></div>
+            </div>
+            <ul class="file-list" id="yt-files"></ul>
+            <details class="toggle">
+              <summary>Details</summary>
+              <pre class="log" id="yt-log"></pre>
+            </details>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

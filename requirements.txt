@@ -1,0 +1,7 @@
+flask
+pillow
+PyMuPDF
+pypdf
+python-docx
+reportlab
+yt-dlp[default]
