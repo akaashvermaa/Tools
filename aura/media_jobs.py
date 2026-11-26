@@ -208,10 +208,6 @@ class MediaJob:
         self.proc: Optional[subprocess.Popen] = None
         self.plan: dict = {}
 
-    def add_log(self, line: str):
-        self.log.append(line)
-        del self.log[:-MAX_LOG_LINES]
-
     def cancel(self):
         self.cancelled = True
         if self.proc and self.proc.poll() is None:

@@ -107,8 +107,13 @@ function setMenu(open) {
 }
 
 function showTab(id) {
-  if (!$(`#tab-${id}`)) id = "home";
-  $$(".nav-item[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === id));
+  if (!document.getElementById(`tab-${id}`)?.classList.contains("tab")) id = "home";
+  $$(".nav-item[data-tab]").forEach((b) => {
+    const selected = b.dataset.tab === id;
+    b.classList.toggle("active", selected);
+    if (selected) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
   $$(".tab").forEach((t) => t.classList.toggle("active", t.id === `tab-${id}`));
   const label = $(`.nav-item[data-tab="${id}"]`).textContent.trim();
   $("#crumb").textContent = label;
@@ -139,6 +144,81 @@ $("#theme-toggle").addEventListener("click", () => {
   renderThemeToggle();
 });
 renderThemeToggle();
+
+// ── Home search and category filters ────────────────────────────────────────
+
+function initHomeSearch() {
+  const search = $("#home-search");
+  const clear = $("#home-search-clear");
+  const filters = $$("[data-home-filter]");
+  const groups = $$("[data-home-group]").map((section) => ({
+    section,
+    cards: $$(".tile", section).map((card) => ({
+      card,
+      text: `${card.textContent} ${card.dataset.keywords}`.toLowerCase(),
+    })),
+  }));
+  const status = $("#home-search-status");
+  let category = "all";
+  let matches = [];
+
+  function refresh() {
+    const terms = search.value.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    matches = [];
+    for (const { section, cards } of groups) {
+      const inCategory = category === "all" || section.dataset.homeGroup === category;
+      section.hidden = true;
+      for (const { card, text } of cards) {
+        const match = inCategory && terms.every((term) => text.includes(term));
+        card.hidden = !match;
+        if (match) {
+          section.hidden = false;
+          matches.push(card);
+        }
+      }
+    }
+    clear.hidden = !search.value;
+    $("#home-empty").hidden = matches.length > 0;
+    status.textContent = terms.length || category !== "all"
+      ? `${matches.length} ${matches.length === 1 ? "tool" : "tools"} found.`
+      : "";
+    filters.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.homeFilter === category)));
+  }
+
+  function clearSearch() {
+    search.value = "";
+    refresh();
+    search.focus();
+  }
+
+  search.addEventListener("input", refresh);
+  search.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && search.value) clearSearch();
+    if (event.key === "Enter" && !event.isComposing && matches.length === 1) {
+      const [card] = matches;
+      card.click();
+      const heading = $(`#tab-${card.dataset.tab} h1`);
+      if (heading) {
+        heading.tabIndex = -1;
+        heading.focus();
+      }
+    }
+  });
+  clear.addEventListener("click", clearSearch);
+  $("#home-reset").addEventListener("click", () => {
+    category = "all";
+    clearSearch();
+  });
+  for (const button of filters) {
+    button.addEventListener("click", () => {
+      category = button.dataset.homeFilter;
+      refresh();
+    });
+  }
+  refresh();
+}
+
+initHomeSearch();
 
 // ── Dropzones & file lists ──────────────────────────────────────────────────
 
@@ -171,12 +251,12 @@ function bindDropzone(zone, onFiles) {
 }
 
 class FileList {
-  constructor(listEl, { single = false, onChange = null } = {}) {
+  constructor(listEl, { single = false } = {}) {
     this.el = listEl;
     this.files = [];
     this.single = single;
     this.ordered = "ordered" in listEl.dataset;
-    this.onChange = onChange;
+    this.onChange = null;
   }
 
   add(files) {
@@ -207,10 +287,10 @@ class FileList {
       li.innerHTML = `<span class="num">${i + 1}.</span><span class="name"></span>` +
         `<span class="size">${fmtSize(f.size)}</span>` +
         (this.ordered && !this.single
-          ? `<button class="btn icon" data-act="up" title="Move up">↑</button>` +
-            `<button class="btn icon" data-act="down" title="Move down">↓</button>`
+          ? `<button type="button" class="btn icon" data-act="up" title="Move up">↑</button>` +
+            `<button type="button" class="btn icon" data-act="down" title="Move down">↓</button>`
           : "") +
-        `<button class="btn icon" data-act="remove" title="Remove">✕</button>`;
+        `<button type="button" class="btn icon" data-act="remove" title="Remove">✕</button>`;
       $(".name", li).textContent = f.name;
       li.addEventListener("click", (e) => {
         const act = e.target.dataset.act;
@@ -242,12 +322,25 @@ $$(".dropzone[data-list]").forEach((zone) => {
 $("#convert-run").addEventListener("click", (e) => {
   const list = lists["convert-list"];
   if (!list.files.length) return toast("Please add at least one file to convert.", true);
-  runTask(e.currentTarget, $("#convert-status"), "Creating PDF…", async () => {
+  const ocr = $("#convert-ocr").checked;
+  runTask(e.currentTarget, $("#convert-status"), ocr ? "Creating PDF and recognizing text…" : "Creating PDF…", async () => {
     const fd = list.formData();
     fd.append("fit_a4", $("#convert-fit").checked ? "1" : "0");
     fd.append("compress", $("#convert-compress").checked ? "1" : "0");
+    if (ocr) fd.append("ocr", "1");
     await postAndDownload("/api/convert", fd, "output.pdf");
     return `PDF created from ${list.files.length} file(s)!`;
+  });
+});
+
+$("#ocr-run").addEventListener("click", (e) => {
+  const list = lists["ocr-list"];
+  if (!list.files.length) return toast("Please add a PDF.", true);
+  runTask(e.currentTarget, $("#ocr-status"), "Recognizing text…", async () => {
+    const { headers } = await postForFile("/api/ocr", list.formData("file"), "searchable.pdf");
+    return headers.get("X-OCR-Changed") === "1"
+      ? "Searchable PDF downloaded."
+      : "PDF downloaded. OCR found no new text.";
   });
 });
 
@@ -544,6 +637,131 @@ $("#ir-run").addEventListener("click", (e) => {
   });
 });
 
+$("#background-run")?.addEventListener("click", (e) => {
+  const list = lists["background-list"];
+  if (!list.files.length) return toast("Please add an image.", true);
+  runTask(e.currentTarget, $("#background-status"), "Removing background…", async () => {
+    const name = await postAndDownload("/api/background", list.formData("file"), "transparent.png");
+    return `Saved ${name}.`;
+  });
+});
+
+function initFormImage() {
+  const form = $("#form-image-settings");
+  const list = lists["form-image-list"];
+  const run = $("#form-image-run");
+  const status = $("#form-image-status");
+  const source = $("#form-image-source");
+  const output = $("#form-image-output");
+  const empty = $("#form-image-preview-empty");
+  const label = $("#form-image-preview-label");
+  const resultActions = $("#form-image-result");
+  let sourceUrl, outputUrl, result, activeRequest;
+
+  function refreshPreview() {
+    const signature = form.elements.kind.value === "signature";
+    const width = Number(form.elements.width.value);
+    const height = Number(form.elements.height.value);
+    const crop = !signature && width > 0 && height > 0;
+    $("#form-image-crop-options").hidden = signature;
+    $("#form-image-signature-options").hidden = !signature;
+    const transparency = $("#form-image-transparency");
+    transparency.hidden = !signature || form.elements.format.value === "jpg";
+    form.elements.transparent.disabled = transparency.hidden;
+
+    source.style.width = crop ? `min(100%, ${Math.min(240, 240 * width / height)}px)` : "auto";
+    source.style.aspectRatio = crop ? `${width} / ${height}` : "auto";
+    source.style.objectPosition = crop ? `${form.elements.center_x.value}% ${form.elements.center_y.value}%` : "center";
+    source.alt = crop ? "Photo crop preview" : "Original image";
+    source.hidden = Boolean(result) || !source.naturalWidth;
+    output.hidden = !result;
+    resultActions.hidden = !result;
+    empty.hidden = Boolean(result) || !source.hidden;
+    label.hidden = !result && source.hidden;
+    label.textContent = result ? result.summary : source.alt;
+  }
+
+  function clearResult() {
+    activeRequest?.abort();
+    activeRequest = null;
+    if (outputUrl) URL.revokeObjectURL(outputUrl);
+    outputUrl = null;
+    output.removeAttribute("src");
+    result = null;
+    run.disabled = false;
+    setStatus(status, "");
+    refreshPreview();
+  }
+
+  list.onChange = ([file]) => {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    sourceUrl = file ? URL.createObjectURL(file) : null;
+    if (sourceUrl) source.src = sourceUrl;
+    else source.removeAttribute("src");
+    empty.textContent = file ? "Prepare the image to see your result." : "Your preview will appear here.";
+    clearResult();
+  };
+  source.addEventListener("load", refreshPreview);
+  source.addEventListener("error", refreshPreview);
+  form.addEventListener("input", clearResult);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const [file] = list.files;
+    if (!file) return setStatus(status, "Add a photo or signature first.", "err");
+    clearResult();
+    const request = new AbortController();
+    activeRequest = request;
+    run.disabled = true;
+    setStatus(status, "Preparing image…", "busy");
+
+    const settings = new FormData(form);
+    settings.set("file", file, file.name);
+    const format = settings.get("format");
+    const width = Number(settings.get("width"));
+    const height = Number(settings.get("height"));
+    const limit = Number(settings.get("max_kb"));
+    settings.set("width", String(width));
+    settings.set("height", String(height));
+    settings.set("max_kb", String(limit));
+    try {
+      const res = await fetch("/api/form-image", { method: "POST", body: settings, signal: request.signal });
+      if (!res.ok) throw new Error(await errorFrom(res));
+      const blob = await res.blob();
+      if (request.signal.aborted) return;
+      outputUrl = URL.createObjectURL(blob);
+      output.src = outputUrl;
+      await output.decode();
+      if (request.signal.aborted) return;
+
+      const mime = format === "jpg" ? "image/jpeg" : `image/${format}`;
+      if (output.naturalWidth !== width || output.naturalHeight !== height ||
+          blob.type !== mime || (limit && blob.size > limit * 1000)) {
+        throw new Error("The prepared image did not meet the upload requirements.");
+      }
+      const summary = `${width} × ${height} px · ${format.toUpperCase()} · ${blob.size.toLocaleString()} bytes` +
+        (limit ? ` · Limit ${limit.toLocaleString()} KB` : "");
+      result = { blob, name: filenameFrom(res, `form-upload.${format}`), summary };
+      refreshPreview();
+      setStatus(status, "Ready to download.", "ok");
+      if (matchMedia("(max-width: 800px)").matches) resultActions.scrollIntoView({ block: "center" });
+    } catch (err) {
+      if (request.signal.aborted) return;
+      clearResult();
+      setStatus(status, err.message, "err");
+    } finally {
+      if (activeRequest === request) {
+        activeRequest = null;
+        run.disabled = false;
+      }
+    }
+  });
+  $("#form-image-save").addEventListener("click", () => {
+    if (result) saveBlob(result.blob, result.name);
+  });
+}
+
+initFormImage();
+
 // ── Image editor (runs entirely in the browser) ─────────────────────────────
 
 const Editor = {
@@ -757,6 +975,9 @@ class Downloader {
   }
 
   async fetchInfo() {
+    const button = this.el("fetch");
+    if (button.disabled || this.el("run").disabled) return;
+    button.disabled = true;
     const status = this.el("status");
     setStatus(status, "Fetching video info…", "busy");
     try {
@@ -771,6 +992,8 @@ class Downloader {
     } catch (e) {
       setStatus(status, e.message, "err");
       toast(e.message, true);
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -865,16 +1088,16 @@ class Downloader {
   render(job) {
     const playlist = job.item_count > 1;
     const finished = job.status === "done";
-    this.el("bar").style.width = `${((finished ? 1 : job.progress) * 100).toFixed(1)}%`;
+    const complete = finished && !job.stopped_early;
+    this.el("bar").style.width = `${((complete ? 1 : job.progress) * 100).toFixed(1)}%`;
     this.el("speed").textContent = job.speed != null ? fmtSize(job.speed) + "/s" : "—";
-    this.el("eta").textContent = finished ? "0:00" : fmtTime(job.eta);
+    this.el("eta").textContent = complete ? "0:00" : fmtTime(finished ? null : job.eta);
     this.el("done").textContent = fmtSize(job.downloaded);
 
     $(`#${this.prefix}-size-label`).textContent = playlist ? "Videos" : "Size";
     if (playlist) {
-      const complete = finished ? job.item_count : Math.max(job.item_index - 1, 0);
       const skipped = job.skipped ? ` · ${job.skipped} skipped` : "";
-      this.el("size").textContent = `${complete} of ${job.item_count} done${skipped}`;
+      this.el("size").textContent = `${job.completed} of ${job.item_count} downloaded${skipped}`;
     } else {
       this.el("size").textContent = fmtSize(job.total);
     }
@@ -952,9 +1175,10 @@ class Downloader {
   }
 }
 
-// platform key → element-id prefix (kept in sync with PLATFORMS in yt_jobs.py)
-Object.entries({ youtube: "yt", facebook: "fb", instagram: "ig" })
-  .forEach(([platform, prefix]) => new Downloader(platform, prefix).init());
+$$("[data-downloader]").forEach((section) => {
+  const { downloader, prefix } = section.dataset;
+  new Downloader(downloader, prefix).init();
+});
 
 // ── Video & audio tools tab ─────────────────────────────────────────────────
 
@@ -1154,4 +1378,4 @@ if ($(".dep")) {
   }).catch(() => {});
 }
 
-showTab(location.hash.slice(1));
+showTab(location.hash.slice(1) || "home");

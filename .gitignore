@@ -11,6 +11,10 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local test files and temporary text files at the project root
+/tests/
+/*.txt
+
 # Downloaded helper programs (ffmpeg), made by the app in the project folder
 /tools/
 

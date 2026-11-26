@@ -10,6 +10,7 @@ and retries, so one flaky mirror doesn't break setup.
 
 import functools
 import glob
+import hashlib
 import os
 import platform
 import shutil
@@ -25,7 +26,7 @@ import urllib.request
 import zipfile
 from typing import Callable, Dict, List, Optional
 
-from .paths import tools_bin
+from .paths import cache_dir, tools_bin
 
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -195,6 +196,50 @@ def _fetch(url: str, dest: str, on_bytes: Callable[[int, Optional[int]], None]):
             on_bytes(done, total)
     if total and done < total:
         raise IOError(f"Download was cut off ({done} of {total} bytes).")
+
+
+_model_lock = threading.Lock()
+
+
+def model_file(filename: str, url: str, sha256: str, label: str) -> str:
+    """Cache a verified model download for use across app restarts."""
+    with _model_lock:
+        folder = os.path.join(cache_dir(), "models")
+        path = os.path.join(folder, filename)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            if not os.path.isfile(path):
+                with tempfile.TemporaryDirectory(dir=folder) as staging:
+                    download = os.path.join(staging, filename)
+                    _fetch(url, download, lambda *_: None)
+                    digest = hashlib.sha256()
+                    with open(download, "rb") as data:
+                        for chunk in iter(lambda: data.read(256 * 1024), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != sha256:
+                        raise ValueError("The downloaded file failed its integrity check.")
+                    os.replace(download, path)
+        except (OSError, ValueError) as e:
+            raise ValueError(f"Couldn't set up {label}. Check your connection and try again. {e}") from e
+        return path
+
+
+def ocr_model() -> str:
+    return model_file(
+        "eng.traineddata",
+        "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata",
+        "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+        "English OCR",
+    )
+
+
+def background_model() -> str:
+    return model_file(
+        "u2netp.onnx",
+        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
+        "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+        "background removal",
+    )
 
 
 def _extract(archive: str, wanted: List[str], out_dir: str):

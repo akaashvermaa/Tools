@@ -6,6 +6,7 @@ straight in and stream results straight back.
 """
 
 import io
+import math
 import os
 import zipfile
 from typing import List, Tuple
@@ -14,7 +15,7 @@ import pymupdf as fitz
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
-from . import image_tools
+from . import deps, image_tools
 
 # --- Optional DOCX support (graceful degradation) ---
 try:
@@ -157,10 +158,6 @@ def docx_to_pdf_bytes(data: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def _image_to_image(data: bytes, out_fmt: str, quality: int, name: str = "image") -> bytes:
-    return image_tools.convert_image(data, out_fmt, quality, name)
-
-
 def _pdf_to_images(data: bytes, out_fmt: str, quality: int, dpi: int) -> List[bytes]:
     doc = fitz.open(stream=data, filetype="pdf")
     mat = fitz.Matrix(dpi / 72, dpi / 72)
@@ -240,7 +237,7 @@ def convert_files(
     dpi = max(36, min(600, dpi))
 
     outputs: List[UploadedFile] = []
-    merged = PdfWriter()
+    merged = PdfWriter() if out_fmt == "pdf" and merge else None
     for name, data in files:
         ext = ext_of(name)
         if ext not in src_exts:
@@ -250,7 +247,7 @@ def convert_files(
         if out_fmt == "pdf":
             pdf = image_to_pdf_bytes(data, fit_a4=True, compress=quality < 95, name=name) if ext in IMAGE_EXTS \
                 else docx_to_pdf_bytes(data)
-            if merge:
+            if merged is not None:
                 _append_pdf(merged, pdf)
             else:
                 outputs.append((f"{base}.pdf", pdf))
@@ -261,9 +258,9 @@ def convert_files(
             else:
                 outputs.extend((f"{base}_page{i + 1}.{out_fmt}", p) for i, p in enumerate(pages))
         else:
-            outputs.append((f"{base}.{out_fmt}", _image_to_image(data, out_fmt, quality, name)))
+            outputs.append((f"{base}.{out_fmt}", image_tools.convert_image(data, out_fmt, quality, name)))
 
-    if out_fmt == "pdf" and merge:
+    if merged is not None:
         return [("converted.pdf", _write(merged))]
     return outputs
 
@@ -354,10 +351,6 @@ def organize_pages(data: bytes, pages: List[dict]) -> bytes:
     return _write(writer)
 
 
-def reorder_pages(data: bytes, order: List[int]) -> bytes:
-    return organize_pages(data, [{"page": p} for p in order])
-
-
 # ── Compress ────────────────────────────────────────────────────────────────
 
 # level -> (max image dpi, JPEG quality); None = leave the images alone
@@ -373,6 +366,43 @@ def _open_pdf(data: bytes, password: str = "") -> "fitz.Document":
         doc.close()
         raise ValueError("This PDF is password-protected. Unlock it first (Protect / unlock tool).")
     return doc
+
+
+def make_searchable(data: bytes) -> bytes:
+    """Add invisible English OCR text to scanned pages while preserving the PDF."""
+    tessdata = None
+    changed = False
+    with _open_pdf(data) as doc:
+        for page in doc:
+            if page.get_text().strip():
+                continue
+            if tessdata is None:
+                tessdata = os.path.dirname(deps.ocr_model())
+            changed = _add_ocr_layer(page, tessdata) or changed
+        return doc.tobytes(garbage=3, deflate=True) if changed else data
+
+
+def _add_ocr_layer(page: "fitz.Page", tessdata: str) -> bool:
+    dpi = min(300, max(1, int(72 * math.sqrt(20_000_000 / page.rect.get_area()))))
+    pix = page.get_pixmap(dpi=dpi, annots=False)
+    try:
+        layer = pix.pdfocr_tobytes(language="eng", tessdata=tessdata)
+    except RuntimeError as e:
+        raise ValueError(f"Couldn't recognize text on page {page.number + 1}: {e}") from e
+    with fitz.open(stream=layer, filetype="pdf") as recognized:
+        ocr_page = recognized[0]
+        if not ocr_page.get_text().strip():
+            return False
+        # Keep only the invisible text from the OCR PDF.
+        ocr_page.delete_image(ocr_page.get_images()[0][0])
+        rotation = page.rotation
+        try:
+            # OCR renders in viewing orientation. PDF content uses unrotated coordinates.
+            page.set_rotation(0)
+            page.show_pdf_page(page.rect, recognized, 0, rotate=rotation, keep_proportion=False)
+        finally:
+            page.set_rotation(rotation)
+    return True
 
 
 def _shrink_images(doc: "fitz.Document", max_dpi: int, quality: int):

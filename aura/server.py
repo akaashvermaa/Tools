@@ -19,19 +19,14 @@ from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
+from werkzeug.serving import make_server
 
 from . import deps, folder_dialog, image_tools, media_jobs, pdf_tools, yt_jobs
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = int(os.environ.get("AURA_PORT", 5000))
 
-PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-app = Flask(
-    __name__,
-    template_folder=os.path.join(PACKAGE_DIR, "templates"),
-    static_folder=os.path.join(PACKAGE_DIR, "static"),
-)
+app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 1 GB per request
 
 MIMETYPES = {
@@ -127,8 +122,11 @@ def index():
         compress_levels=list(media_jobs.COMPRESS_LEVELS),
         max_heights=list(media_jobs.MAX_HEIGHTS),
         image_exts=sorted(pdf_tools.IMAGE_EXTS),
+        image_max_side=image_tools.MAX_SIDE,
         image_presets=image_tools.PRESETS,
         heic_support=image_tools.HEIC_SUPPORT,
+        background_support=image_tools.BACKGROUND_SUPPORT,
+        setup_command="launch.bat" if sys.platform.startswith("win") else "python3 launch.py --update",
         number_formats=list(pdf_tools.NUMBER_FORMATS),
         number_positions=pdf_tools.NUMBER_POSITIONS,
         platforms=yt_jobs.PLATFORMS,
@@ -145,6 +143,8 @@ def index():
 def api_convert():
     files = uploaded_files()
     pdf = pdf_tools.files_to_pdf(files, fit_a4=form_bool("fit_a4"), compress=form_bool("compress"))
+    if form_bool("ocr"):
+        pdf = pdf_tools.make_searchable(pdf)
     return send_bytes(pdf, "output.pdf")
 
 
@@ -170,8 +170,17 @@ def api_merge():
 
 @app.post("/api/pdf/info")
 def api_pdf_info():
-    name, data = uploaded_files("file")[0]
+    _, data = uploaded_files("file")[0]
     return jsonify(pages=pdf_tools.page_count(data))
+
+
+@app.post("/api/ocr")
+def api_ocr():
+    name, data = uploaded_files("file")[0]
+    out = pdf_tools.make_searchable(data)
+    res = send_bytes(out, f"{pdf_tools.base_of(name)}_searchable.pdf")
+    res.headers["X-OCR-Changed"] = "1" if out is not data else "0"
+    return res
 
 
 @app.post("/api/split")
@@ -228,6 +237,30 @@ def api_imgresize():
     return res
 
 
+@app.post("/api/background")
+def api_background():
+    name, data = uploaded_files("file")[0]
+    out = image_tools.remove_background(data, name)
+    return send_bytes(out, f"{pdf_tools.base_of(name)}_transparent.png")
+
+
+@app.post("/api/form-image")
+def api_form_image():
+    name, out = image_tools.prepare_form_image(
+        uploaded_files("file")[0],
+        kind=request.form.get("kind", "photo"),
+        width=form_int("width", 0),
+        height=form_int("height", 0),
+        fmt=request.form.get("format", "jpg"),
+        max_kb=form_int("max_kb", 0) if request.form.get("max_kb") else 0,
+        center_x=form_int("center_x", 50),
+        center_y=form_int("center_y", 50),
+        cutoff=form_int("cutoff", 220),
+        transparent=form_bool("transparent"),
+    )
+    return send_bytes(out, name)
+
+
 @app.post("/api/compress")
 def api_compress():
     name, data = uploaded_files("file")[0]
@@ -280,7 +313,8 @@ def _yt_body() -> dict:
 @app.post("/api/yt/info")
 def api_yt_info():
     body = _yt_body()
-    return jsonify(yt_jobs.fetch_info(body["url"], body["cookies"], body["platform"]))
+    return jsonify(yt_jobs.fetch_info(body["url"], body["cookies"], body["platform"],
+                                     playlist=body["platform"] == "youtube" and bool(body.get("playlist"))))
 
 
 @app.post("/api/yt/download")
@@ -411,9 +445,10 @@ def main():
             signal.signal(getattr(signal, name), lambda *_: sys.exit(0))
 
     port = free_port(DEFAULT_PORT)
-    url = f"http://{HOST}:{port}"
-    print(f"Aura Tools running at {url}  (Ctrl+C to quit)")
+    server = make_server(HOST, port, app, threaded=True)
+    url = f"http://{HOST}:{port}/"
+    print(f"Aura Tools running at {url}  (Ctrl+C to quit)", flush=True)
     if not os.environ.get("AURA_NO_BROWSER"):
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    app.run(host=HOST, port=port, threaded=True)
+        threading.Thread(target=webbrowser.open_new_tab, args=(url,), daemon=True).start()
+    server.serve_forever()
 

@@ -1,0 +1,1 @@
+onnxruntime  # CPU runtime for local image background removal (includes NumPy)

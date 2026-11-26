@@ -8,9 +8,12 @@ profile, and optionally drop the location and camera data before sharing.
 
 import io
 import os
+import threading
 from typing import List, Optional, Tuple
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
+
+from . import deps
 
 # --- Optional HEIC/HEIF support (iPhone photos); the app works without it ---
 try:
@@ -21,10 +24,21 @@ try:
 except Exception:  # not installed, or no wheel for this platform
     HEIC_SUPPORT = False
 
+try:
+    import numpy as np
+    import onnxruntime as ort
+except (ImportError, OSError):  # optional CPU runtime or its native libraries are unavailable
+    ort = None
+
+BACKGROUND_SUPPORT = ort is not None
+_background_session = None
+_background_lock = threading.Lock()
+
 INPUT_EXTS = ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"] + (["heic", "heif"] if HEIC_SUPPORT else [])
 LOSSY = ("jpg", "webp")
 MIN_QUALITY = 40  # below this JPEG/WebP turn blocky; shrinking the picture looks better than going lower
 MAX_SIDE = 12000
+UPLOAD_MAX_PIXELS = 16_000_000
 
 # name -> (mode, width, height). "fit" keeps the shape and never enlarges; "exact" crops to fill.
 PRESETS = {
@@ -119,6 +133,43 @@ def _to_ico(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
+def _background_mask(img: Image.Image) -> Image.Image:
+    global _background_session
+    with _background_lock:
+        if _background_session is None:
+            model = deps.background_model()
+            _background_session = ort.InferenceSession(model, providers=["CPUExecutionProvider"])
+    session = _background_session
+
+    # U²-Net takes a 320 × 320 RGB tensor normalized with ImageNet statistics.
+    pixels = np.asarray(img.resize((320, 320), Image.Resampling.LANCZOS), dtype=np.float32)
+    pixels /= max(float(pixels.max()), 1.0)
+    pixels -= np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    pixels /= np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    tensor = np.ascontiguousarray(pixels.transpose(2, 0, 1)[None])
+    prediction = session.run(None, {session.get_inputs()[0].name: tensor})[0][0, 0]
+    low, high = float(prediction.min()), float(prediction.max())
+    if high > low:
+        prediction = (prediction - low) / (high - low)
+    mask = Image.fromarray((prediction.clip(0, 1) * 255).astype(np.uint8))
+    return mask.resize(img.size, Image.Resampling.LANCZOS)
+
+
+def remove_background(data: bytes, name: str) -> bytes:
+    """Keep the foreground as a PNG, respecting the image's existing transparency."""
+    if not BACKGROUND_SUPPORT:
+        setup = "launch.bat" if os.name == "nt" else "python3 launch.py --update"
+        raise ValueError(f"Background removal needs the optional ONNX Runtime. Run {setup} to try installing it.")
+    if _ext(name) not in INPUT_EXTS:
+        raise ValueError(f"{name}: unsupported file type.")
+    img, icc, _ = open_image(data, name)
+    mask = _background_mask(flatten_to_rgb(img))
+    out = img.convert("RGBA")
+    out.putalpha(ImageChops.multiply(out.getchannel("A"), mask))
+    out.info.clear()
+    return encode(out, "png", icc=icc)
+
+
 # ── Resize & compress (its own tab) ─────────────────────────────────────────
 
 def resize(img: Image.Image, mode: str, percent: int = 100, width: int = 0, height: int = 0) -> Image.Image:
@@ -143,21 +194,26 @@ def resize(img: Image.Image, mode: str, percent: int = 100, width: int = 0, heig
     raise ValueError("Unknown resize mode.")
 
 
+def _quality_under_limit(img, fmt, low, high, max_bytes, icc=None, exif=None):
+    best = None
+    while low <= high:
+        quality = (low + high) // 2
+        trial = encode(img, fmt, quality, icc, exif)
+        if len(trial) <= max_bytes:
+            best = quality, trial
+            low = quality + 1
+        else:
+            high = quality - 1
+    return best
+
+
 def fit_to_size(img: Image.Image, fmt: str, quality: int, max_bytes: int, icc, exif) -> Tuple[bytes, Optional[str]]:
     """Encode so the result is at most `max_bytes`: lower the quality first, then the dimensions."""
     data = encode(img, fmt, quality, icc, exif)
     if len(data) <= max_bytes:
         return data, None
-    note = None
     if fmt in LOSSY:
-        lo, hi, best = MIN_QUALITY, quality - 1, None
-        while lo <= hi:  # highest quality that still fits
-            mid = (lo + hi) // 2
-            trial = encode(img, fmt, mid, icc, exif)
-            if len(trial) <= max_bytes:
-                best, lo = (mid, trial), mid + 1
-            else:
-                hi = mid - 1
+        best = _quality_under_limit(img, fmt, MIN_QUALITY, quality - 1, max_bytes, icc, exif)
         if best:
             return best[1], f"quality lowered to {best[0]} to fit the limit"
     work, q = img, (min(quality, 70) if fmt in LOSSY else quality)
@@ -170,6 +226,72 @@ def fit_to_size(img: Image.Image, fmt: str, quality: int, max_bytes: int, icc, e
             break
         work = work.resize((max(1, round(work.width * k)), max(1, round(work.height * k))), Image.LANCZOS)
     raise ValueError(f"Couldn't get this picture under {max_bytes // 1024} KB without making it tiny. Try a larger limit.")
+
+
+def _clean_signature(img: Image.Image, size: Tuple[int, int], cutoff: int, transparent: bool) -> Image.Image:
+    # Turn the darkness of the pen stroke into alpha, leaving light paper behind.
+    gray = ImageOps.grayscale(flatten_to_rgb(img))
+    ink = gray.point([max(0, min(255, (cutoff - value) * 5)) for value in range(256)])
+    bounds = ink.getbbox()
+    if not bounds:
+        raise ValueError("No dark pen strokes found. Move the cleanup slider toward Keep lighter ink and try again.")
+    ink = ink.crop(bounds)
+    width, height = size
+    margin = min(size) // 20
+    scale = min((width - 2 * margin) / ink.width, (height - 2 * margin) / ink.height)
+    ink = ink.resize((max(1, round(ink.width * scale)), max(1, round(ink.height * scale))), Image.LANCZOS)
+    mask = Image.new("L", size)
+    mask.paste(ink, ((width - ink.width) // 2, (height - ink.height) // 2))
+    if transparent:
+        out = Image.new("RGBA", size)
+        out.putalpha(mask)
+        return out
+    return ImageOps.invert(mask)
+
+
+def prepare_form_image(file: UploadedFile, kind: str, width: int, height: int, fmt: str, max_kb: int,
+                       center_x: int = 50, center_y: int = 50, cutoff: int = 220,
+                       transparent: bool = False) -> UploadedFile:
+    """Prepare one upload without changing its requested dimensions or format to meet the cap."""
+    name, data = file
+    if kind not in ("photo", "signature") or fmt not in ("jpg", "png", "webp"):
+        raise ValueError("Choose a photo or signature and a supported format.")
+    if _ext(name) not in INPUT_EXTS:
+        raise ValueError(f"{name}: unsupported file type.")
+    if not (1 <= width <= MAX_SIDE and 1 <= height <= MAX_SIDE):
+        raise ValueError(f"Enter a width and height between 1 and {MAX_SIDE} pixels.")
+    if width * height > UPLOAD_MAX_PIXELS:
+        raise ValueError("The requested dimensions exceed 16 megapixels.")
+    if max_kb < 0:
+        raise ValueError("The file-size limit can't be negative.")
+    if not (0 <= center_x <= 100 and 0 <= center_y <= 100 and 100 <= cutoff <= 250):
+        raise ValueError("Invalid crop position or cleanup setting.")
+
+    img, _, _ = open_image(data, name)
+    if kind == "signature":
+        img = _clean_signature(img, (width, height), cutoff, transparent and fmt != "jpg")
+    else:
+        img = img.convert("RGBA" if has_alpha(img) else "RGB")
+        img = ImageOps.fit(img, (width, height), Image.LANCZOS, centering=(center_x / 100, center_y / 100))
+    img.info.clear()  # Remove camera and location metadata from form uploads.
+
+    max_bytes = max_kb * 1000
+    output_name = f"{_stem(name)}_upload.{fmt}"
+    packed = encode(img, fmt, quality=92)
+    if not max_bytes or len(packed) <= max_bytes:
+        return output_name, packed
+    if fmt in LOSSY:
+        best = _quality_under_limit(img, fmt, 5, 91, max_bytes)
+        if best:
+            return output_name, best[1]
+    else:
+        for colors in (256, 128, 64, 32, 16):
+            with io.BytesIO() as out:
+                img.quantize(colors=colors, dither=Image.Dither.NONE).save(out, "PNG", optimize=True)
+                if out.tell() <= max_bytes:
+                    return output_name, out.getvalue()
+    raise ValueError(f"Couldn't fit a {width} × {height} {fmt.upper()} under {max_kb} KB. "
+                     "Check the form for a larger limit or another accepted format.")
 
 
 def _out_format(fmt: str, source_ext: str, img: Image.Image) -> str:
