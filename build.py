@@ -28,9 +28,11 @@ def main():
     py = sys.executable
 
     print("[+] Installing build dependencies...", flush=True)
-    subprocess.check_call([py, "-m", "pip", "install", "-q", "-r", "requirements.txt", "pyinstaller"])
-    if subprocess.call([py, "-m", "pip", "install", "-q", "-r", "requirements-optional.txt"]) != 0:
+    subprocess.check_call([py, "-m", "pip", "install", "-q", "-r", launch.REQUIREMENTS, "pyinstaller"])
+    if subprocess.call([py, "-m", "pip", "install", "-q", "-r", launch.OPTIONAL_REQUIREMENTS]) != 0:
         print("[!] Optional extras (HEIC photo support) couldn't be installed here; building without them.", flush=True)
+    if subprocess.call([py, "-m", "pip", "install", "-q", "-r", launch.BACKGROUND_REQUIREMENTS]) != 0:
+        print("[!] Background removal extras couldn't be installed here; building without them.", flush=True)
 
     print("[+] Cleaning previous build...", flush=True)
     for path in ("build", "dist", f"{NAME}.spec"):
@@ -54,6 +56,8 @@ def main():
     ]
     if subprocess.call([py, "-c", "import pillow_heif"], stderr=subprocess.DEVNULL) == 0:
         cmd[-1:-1] = ["--collect-all", "pillow_heif"]  # HEIC (iPhone photo) support: ships a native library
+    if subprocess.call([py, "-c", "import onnxruntime"], stderr=subprocess.DEVNULL) == 0:
+        cmd[-1:-1] = ["--collect-binaries", "onnxruntime"]
     if sys.platform.startswith("win"):
         cmd[3:3] = ["--icon", os.path.join("assets", "logo.ico")]
 

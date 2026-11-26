@@ -1,50 +1,37 @@
 # Aura Tools
 
-Everyday tools for PDFs, images and videos in a clean, Notion-style web UI.
-Everything runs locally on your computer. Nothing is uploaded anywhere.
-
-| Tool | What it does |
-|---|---|
-| Create PDF | Combine photos (JPG, PNG, WebP, HEIC…) and Word files (DOCX) into one PDF; phone photos stay upright |
-| Merge PDFs | Join several PDFs in the order you choose |
-| Split PDF | Extract page ranges (`1-3, 5`) or split every N pages |
-| Organize pages | Drag thumbnails into a new order, rotate or delete pages |
-| Compress PDF | Shrink a PDF for email or upload forms (Light / Balanced / Strong) |
-| Protect / unlock | Add an AES-256 password, or remove one you know |
-| Watermark & numbers | Diagonal text watermark and page numbers on every page |
-| Convert format | Any image ↔ JPG / PNG / WebP (incl. iPhone HEIC), favicon .ico, PDF → images, images/DOCX → PDF |
-| Resize & compress | Shrink photos by percent or to an exact size, passport/Instagram presets, "limit to N KB", strip location data |
-| Image editor | Rotate, flip, crop, save as PNG or JPG |
-| Video & audio tools | Convert (MP4, MKV, WebM, MP3, M4A, WAV), extract audio, trim, shrink, make GIFs, remove sound (uses ffmpeg) |
-| YouTube downloader | Video or audio, up to 4K, subtitles, playlists |
-| Facebook downloader | Public videos and Reels (`facebook.com`, `fb.watch`) |
-| Instagram downloader | Reels, posts and story videos (`instagram.com`) |
-
-Works on **Windows, macOS and Linux**.
+Aura is a free local app for preparing files for forms, working with PDFs, and editing photos or videos.
+It works on **Windows, macOS, and Linux**, and processes your files on your computer.
 
 ## Quick start
 
-You need **Python 3.9 or newer** ([python.org/downloads](https://www.python.org/downloads/)).
-On Windows, tick **"Add Python to PATH"** during install.
+1. Download the Aura project folder or ZIP. If you have a ZIP, extract it before launching.
+2. Install **Python 3.9 or newer** if you need it. On Windows, select **Add Python to PATH** during installation. [Python downloads](https://www.python.org/downloads/)
+3. Open the extracted Aura folder and run the launcher for your operating system.
 
 | OS | Start the app |
 |---|---|
-| Windows | Double-click **`run.bat`** |
+| Windows | Double-click **`launch.bat`** for setup. Then double-click **`run.bat`** whenever you want to open Aura. |
 | macOS | Double-click **`run.command`** (or run `./run.sh` in Terminal) |
 | Linux | Run **`./run.sh`** in a terminal |
 
-Or, on any OS, from a terminal in this folder:
+The first setup needs internet access and may take a few minutes. On Windows, `launch.bat` installs the Python
+packages and ffmpeg, then caches OCR data and the background-removal model where supported. Once setup finishes,
+press a key to close the window. Rerun `launch.bat` to update yt-dlp or retry missing components. `run.bat` starts Aura
+using the existing installation.
+
+You can also install and open Aura in one step from a terminal:
 
 ```bash
 python launch.py      # Windows
 python3 launch.py     # macOS / Linux
 ```
 
-The first run sets itself up: it creates a `.venv` folder and installs the requirements, which takes a minute.
-After that it starts in a couple of seconds. The app opens in your browser at `http://127.0.0.1:5000`
-(or the next free port). Keep the terminal window open while you use it; close it or press **Ctrl+C** to quit.
+Aura opens Home in your browser automatically at `http://127.0.0.1:5000/` or the next free port. Search Home for a task such as
+**resize photo**, **combine PDFs**, or **playlist**, or browse by category. Aura requires no account.
+Keep the terminal open while you use the app. Press **Ctrl+C** or close the terminal to quit.
 
-**Options** (work with `run.sh`, `run.command` and `launch.py`):
+**Options** for `run.sh`, `run.command`, and `launch.py`. On Windows, `run.bat` accepts `--no-browser`, `--port`, and `--help`.
 
 | Option | What it does |
 |---|---|
@@ -72,8 +59,35 @@ After that it starts in a couple of seconds. The app opens in your browser at `h
 
 ### Optional extras
 
-HEIC (iPhone photo) support is installed separately from `requirements-optional.txt`. If it has no build for your
-system the launcher says so and carries on: everything else works.
+The launcher installs HEIC (iPhone photo) support and the CPU runtime for background removal separately. If an
+extra is unavailable on your system, Aura starts with the other tools. Rerun `launch.bat` on Windows or
+`python3 launch.py --update` on macOS or Linux to retry optional setup.
+
+If the OCR data (about 4 MB) or background-removal model (about 5 MB) is missing, Aura downloads it on first use.
+Aura caches both in your user cache folder. Once the files are cached, both tools work offline. OCR skips pages
+that already have selectable text.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| Photo & signature upload | Match a form's exact pixels, format and file-size cap, or clean up a signature photographed on light paper |
+| Resize & compress | Shrink photos by percent or to an exact size, use presets, set a KB limit, or strip location data |
+| Convert format | Convert between image formats, make a favicon, or save PDF pages as images |
+| Image editor | Rotate, flip, crop, and save as PNG or JPG |
+| Remove background | Cut out the main subject of a photo and save it as a transparent PNG |
+| Create PDF | Combine photos and Word documents (DOCX) into one PDF |
+| Make PDF searchable | Add selectable English text to scanned PDFs with local OCR |
+| Merge PDFs | Join several PDFs in the order you choose |
+| Split PDF | Extract page ranges (`1-3, 5`) or split every N pages |
+| Organize pages | Drag thumbnails into a new order, rotate or delete pages |
+| Compress PDF | Shrink a PDF for email or upload forms (Light / Balanced / Strong) |
+| Protect / unlock | Add an AES-256 password or remove one you know |
+| Watermark & numbers | Add a diagonal text watermark or page numbers |
+| Video & audio tools | Convert MP4, MKV, WebM, MP3, M4A, and WAV, trim or shrink video, extract audio, and make GIFs |
+| YouTube downloader | Save video, audio, subtitles, and playlists |
+| Facebook downloader | Save videos and Reels (`facebook.com`, `fb.watch`) |
+| Instagram downloader | Save Reels, posts, and story videos (`instagram.com`) |
 
 ## ffmpeg (for the video tools and downloaders)
 
@@ -81,8 +95,8 @@ ffmpeg is needed for HD/4K video, MP3 conversion and subtitles. You don't have t
 
 - **In the app:** open any downloader page and click **Install ffmpeg**. It downloads the right build for
   your system, checks that it runs, and works right away without a restart.
-- **In the terminal:** when you launch, the app offers to download it if it's missing. You can also run
-  `python3 launch.py --install-ffmpeg`.
+- **In the terminal:** on Windows, `launch.bat` installs ffmpeg during setup if it's missing. On macOS and Linux,
+  the launcher offers to install it, or you can run `python3 launch.py --install-ffmpeg`.
 
 It is saved to the `tools/` folder inside this project. Nothing system-wide changes. To remove it, delete that folder.
 If ffmpeg is already installed on your system (on PATH, Homebrew, winget), it's used automatically.
@@ -108,18 +122,13 @@ Leave the box empty and the files go through your browser's download as before.
 
 ## Keeping downloads working
 
-Sites change often, and an outdated yt-dlp is the main cause of `HTTP Error 403: Forbidden` (YouTube) and of
-Facebook/Instagram extraction failures.
-
-- **Playlists are paced on purpose:** requests in quick succession are what get you rate-limited. The **Pace** setting
-  adds a random pause between videos (Balanced 3-8 s, Gentle 8-20 s, Fast none). If the site starts refusing
-  (HTTP 429 or "not a bot"), the run stops instead of making it worse and keeps what already finished.
-  Wait 10-15 minutes and use Gentle.
-- **yt-dlp updates itself:** the launcher checks for a new version at most once a day. To force an update, run
-  `python3 launch.py --update` (`python launch.py --update` on Windows).
-- **"Sign in to confirm you're not a bot":** on the YouTube page, set **Browser cookies** to a browser where you're
-  signed in to YouTube. Firefox works best. With Chrome or Edge, close the browser completely first.
-- **Still getting 403 after an update:** restart the app and try again, or use the Browser cookies option.
+- **YouTube and YouTube Music playlists:** turn on **Playlist** to download the full list. With it off, Aura
+  downloads a single item, even from a playlist link. The **Pace** setting controls the delay between videos
+  (Balanced 3–8 s, Gentle 8–20 s, Fast none). Aura stops on detected rate limits and access checks, reports
+  the incomplete run, and keeps the finished files. Retry only after access is restored.
+- **yt-dlp updates:** to update on Windows, run `launch.bat`. On macOS and Linux, the regular launcher checks for
+  a new version at most once a day. Run `python3 launch.py --update` to update immediately.
+- **YouTube access check or 403:** open the link in YouTube and follow the service's instructions.
 - Downloads are stored temporarily in your user cache folder until you save them. They are deleted when you quit,
   or an hour after they finish.
 
@@ -139,11 +148,13 @@ A built app bundles a fixed yt-dlp version and can't update it. Rebuild it when 
 
 ```
 launch.py            Cross-platform launcher (venv, requirements, yt-dlp updates, ffmpeg prompt)
-run.bat              Windows double-click launcher
+launch.bat           Windows dependency setup and updates
+run.bat              Windows quick launcher
 run.command          macOS double-click launcher
 run.sh               Linux launcher
 build.py             Standalone app builder (PyInstaller)
-requirements.txt
+requirements.in      Required Python packages
+requirements-*.in    Optional image-processing packages
 assets/logo.ico      App icon for Windows builds
 aura/
   server.py          Flask routes (web API + page)

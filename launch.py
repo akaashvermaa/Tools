@@ -2,15 +2,11 @@
 """
 Cross-platform launcher for Aura Tools (Windows, macOS, Linux).
 
-    python launch.py      (Windows)       or double-click run.bat
+    launch.bat            (Windows setup)  then run.bat to open Aura
     ./run.sh              (Linux / macOS) or double-click run.command on macOS
 
-Options:  --no-browser   --port N   --update   --install-ffmpeg   --help
-
-First run creates a .venv and installs requirements; later runs start instantly.
-Every launch (at most once a day) it updates yt-dlp, since YouTube changes often
-and an outdated yt-dlp is the main cause of "HTTP 403 Forbidden" errors.
-If ffmpeg is missing it offers to download it (or pass --install-ffmpeg).
+On Windows, launch.bat installs the dependencies and run.bat opens the app.
+A regular Python or shell launch can still install and open Aura in one step.
 """
 
 import hashlib
@@ -23,10 +19,12 @@ import venv
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(ROOT, ".venv")
-REQUIREMENTS = os.path.join(ROOT, "requirements.txt")
-OPTIONAL_REQUIREMENTS = os.path.join(ROOT, "requirements-optional.txt")  # nice-to-haves: the app runs without them
+REQUIREMENTS = os.path.join(ROOT, "requirements.in")
+OPTIONAL_REQUIREMENTS = os.path.join(ROOT, "requirements-optional.in")
+BACKGROUND_REQUIREMENTS = os.path.join(ROOT, "requirements-background.in")
 MARKER = os.path.join(VENV_DIR, ".aura-requirements.sha1")
 OPTIONAL_MARKER = os.path.join(VENV_DIR, ".aura-optional.sha1")
+BACKGROUND_MARKER = os.path.join(VENV_DIR, ".aura-background.sha1")
 YTDLP_STAMP = os.path.join(VENV_DIR, ".aura-ytdlp-checked")
 YTDLP_CHECK_EVERY = 24 * 3600
 
@@ -38,7 +36,7 @@ else:
 
 def fail(msg: str):
     print(f"\n[ERROR] {msg}", flush=True)
-    if sys.platform.startswith("win") and sys.stdin and sys.stdin.isatty():
+    if sys.platform.startswith("win") and not os.environ.get("AURA_BATCH") and sys.stdin and sys.stdin.isatty():
         input("Press Enter to close...")  # a double-clicked window would otherwise vanish before it can be read
     sys.exit(1)
 
@@ -65,7 +63,10 @@ USAGE = """Aura Tools launcher
 
   --no-browser     don't open a browser tab (useful over SSH or on a server)
   --port N         start on port N instead of 5000
-  --update         update yt-dlp now instead of at most once a day
+  --setup-only     install dependencies and models, then exit
+  --run-only       start an existing installation without installing or updating
+  --quick-start    skip the automatic yt-dlp update check and ffmpeg prompt
+  --update         update yt-dlp now and retry optional dependencies
   --install-ffmpeg download ffmpeg now
   -h, --help       show this help
 """
@@ -97,10 +98,10 @@ def venv_has_pip() -> bool:
         return False
 
 
-def ensure_venv():
+def ensure_venv(verify=False):
     # A .venv left half-made by a failed earlier run has a python but no pip; it can't be trusted.
     # (Checked only until the requirements are installed once, so normal starts stay instant.)
-    if os.path.exists(VENV_PYTHON) and (os.path.exists(MARKER) or venv_has_pip()):
+    if os.path.exists(VENV_PYTHON) and ((not verify and os.path.exists(MARKER)) or venv_has_pip()):
         return
     print("[+] Creating virtual environment (first run only)...", flush=True)
     try:
@@ -114,9 +115,17 @@ def ensure_venv():
         fail(f"The virtual environment was created without pip.\n    {venv_hint()}")
 
 
+def requirements_ready(wanted: str) -> bool:
+    try:
+        with open(MARKER) as marker:
+            return marker.read().strip() == wanted
+    except (OSError, UnicodeError):
+        return False
+
+
 def ensure_requirements():
     wanted = file_hash(REQUIREMENTS)
-    if os.path.exists(MARKER) and open(MARKER).read().strip() == wanted:
+    if requirements_ready(wanted):
         return
     print("[+] Installing requirements (this can take a minute)...", flush=True)
     result = subprocess.run([VENV_PYTHON, "-m", "pip", "install", "-r", REQUIREMENTS])
@@ -128,27 +137,32 @@ def ensure_requirements():
 
 
 def ensure_optional(force: bool = False):
-    """Extras like HEIC photo support. If one can't be installed here, say so and carry on without it."""
-    if not os.path.exists(OPTIONAL_REQUIREMENTS):
+    """Install each optional feature independently and carry on if a wheel is missing."""
+    install_optional(OPTIONAL_REQUIREMENTS, OPTIONAL_MARKER, "optional extras", "HEIC photo support", force)
+    install_optional(BACKGROUND_REQUIREMENTS, BACKGROUND_MARKER, "background removal extras", "background removal", force)
+
+
+def install_optional(requirements: str, marker: str, label: str, feature: str, force: bool):
+    if not os.path.exists(requirements):
         return
-    wanted = file_hash(OPTIONAL_REQUIREMENTS)
-    if not force and os.path.exists(OPTIONAL_MARKER) and open(OPTIONAL_MARKER).read().strip() == wanted:
+    wanted = file_hash(requirements)
+    if not force and os.path.exists(marker) and open(marker).read().strip() == wanted:
         return  # already tried for this list (it may have failed; --update tries again)
-    print("[+] Installing optional extras (HEIC/iPhone photo support)...", flush=True)
+    print(f"[+] Installing {label} ({feature})...", flush=True)
     try:
         ok = subprocess.run([VENV_PYTHON, "-m", "pip", "install", "-q", "--disable-pip-version-check",
-                             "-r", OPTIONAL_REQUIREMENTS], capture_output=True, text=True, timeout=300).returncode == 0
+                             "-r", requirements], capture_output=True, text=True, timeout=300).returncode == 0
     except (OSError, subprocess.SubprocessError):
         ok = False
     if not ok:
-        print("[!] The optional extras couldn't be installed on this system (HEIC photos won't open).\n"
+        print(f"[!] The {label} couldn't be installed on this system.\n"
               "    Everything else works. Run with --update to try again.")
-    with open(OPTIONAL_MARKER, "w") as f:
+    with open(marker, "w") as f:
         f.write(wanted)
 
 
 def update_ytdlp(force: bool = False):
-    """Upgrade yt-dlp at most once a day. Never blocks startup if offline."""
+    """Check for yt-dlp updates and keep the installed version if the check fails."""
     try:
         last = os.path.getmtime(YTDLP_STAMP)
     except OSError:
@@ -203,22 +217,54 @@ def run_app():
         pass
 
 
+def prepare_models():
+    from aura import deps, image_tools
+
+    models = [("English OCR", deps.ocr_model)]
+    if image_tools.BACKGROUND_SUPPORT:
+        models.append(("background removal", deps.background_model))
+    for label, fetch in models:
+        try:
+            fetch()
+            print(f"[+] {label} data is ready.", flush=True)
+        except (OSError, ValueError) as e:
+            print(f"[!] {e}", flush=True)
+
+
 def main():
-    apply_options(sys.argv[1:])
-    install_deps = "--install-ffmpeg" in sys.argv
+    options = sys.argv[1:]
+    apply_options(options)
+    quick_start = "--quick-start" in options
+    setup_only = "--setup-only" in options
+    run_only = "--run-only" in options
+    force_update = "--update" in options
+    install_deps = "--install-ffmpeg" in options
+
+    if run_only and (setup_only or force_update or install_deps):
+        fail("Run setup separately. On Windows, use launch.bat to install or update Aura Tools.")
 
     if getattr(sys, "frozen", False):  # packaged by build.py: dependencies are bundled
-        offer_deps(install_deps)  # yt-dlp is bundled in builds: rebuild to update it
+        if setup_only:
+            offer_deps(True)
+            prepare_models()
+            return
+        if not run_only and (not quick_start or install_deps):
+            offer_deps(install_deps)
         return run_app()
 
     if sys.version_info < (3, 9):
         fail(f"Python 3.9 or newer is required (found {sys.version.split()[0]}).")
 
     os.chdir(ROOT)
+    if run_only:
+        if not in_project_venv() or not requirements_ready(file_hash(REQUIREMENTS)):
+            fail("Aura Tools needs setup. Run launch.bat first on Windows, or launch.py --setup-only on macOS or Linux.")
+        return run_app()
+
     if not in_project_venv():
-        ensure_venv()
+        ensure_venv(verify=setup_only)
         # Re-run this script inside the venv so the app uses its packages.
-        args = [VENV_PYTHON, os.path.abspath(__file__)] + sys.argv[1:]
+        args = [VENV_PYTHON, os.path.abspath(__file__)] + options
         if not sys.platform.startswith("win"):
             try:
                 os.execv(VENV_PYTHON, args)  # replace this process: one process, clean Ctrl+C
@@ -231,9 +277,17 @@ def main():
             sys.exit(0)
 
     ensure_requirements()
-    ensure_optional(force="--update" in sys.argv)
-    update_ytdlp(force="--update" in sys.argv)
-    offer_deps(install_deps)
+    ensure_optional(force=force_update)
+    if setup_only or not quick_start or force_update:
+        update_ytdlp(force=force_update)
+    if setup_only:
+        offer_deps(True)
+        prepare_models()
+        command = "run.bat" if sys.platform.startswith("win") else "./run.sh"
+        print(f"[+] Base setup is ready. Open Aura Tools with {command}.", flush=True)
+        return
+    if not quick_start or install_deps:
+        offer_deps(install_deps)
     run_app()
 
 

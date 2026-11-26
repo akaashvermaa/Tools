@@ -30,11 +30,11 @@ PLATFORMS = {
         "name": "YouTube",
         "prefix": "yt",  # element-id prefix and tab id (<prefix>dl) in the page
         "hosts": ("youtube.com", "youtu.be", "youtube-nocookie.com"),
-        "placeholder": "https://www.youtube.com/watch?v=…",
-        "lead": "Paste a link, choose a quality, and download.",
+        "placeholder": "https://www.youtube.com/watch?v=… or https://music.youtube.com/playlist?list=…",
+        "lead": "Paste a YouTube or YouTube Music link. Turn on Playlist to download the whole list.",
         "subtitles": True,
         "playlist_hint": "Download the whole playlist",
-        "cookie_hint": "Use only if YouTube asks you to sign in. Firefox works best.",
+        "cookie_hint": "For permitted content that requires your account. Start with cookies off for public links.",
     },
     "facebook": {
         "name": "Facebook",
@@ -58,9 +58,7 @@ PLATFORMS = {
     },
 }
 
-# How long to pause between videos (and between page requests) when downloading a playlist.
-# Hammering a site with back-to-back requests is what gets an IP rate-limited or asked to
-# "confirm you're not a bot", so the default is a polite, randomised pause.
+# Pause between videos and page requests to reduce request volume during playlist runs.
 PACES = {
     "Balanced": {"sleep_interval": 3, "max_sleep_interval": 8, "sleep_interval_requests": 1},
     "Gentle": {"sleep_interval": 8, "max_sleep_interval": 20, "sleep_interval_requests": 2},
@@ -71,6 +69,7 @@ DEFAULT_PACE = "Balanced"
 # Messages meaning "the site is pushing back". Carrying on only makes it worse, so the job stops.
 RATE_LIMIT_HINTS = ("429", "too many requests", "rate-limit", "rate limit", "not a bot",
                     "sign in to confirm", "temporarily blocked", "unusual traffic")
+_HTTP_REFUSAL = re.compile(r"\b(?:http(?: error| status)?|status(?: code)?)[\s:]+(403|429)\b", re.I)
 
 MAX_LOG_LINES = 300
 JOBS = JobRegistry("yt-jobs")
@@ -89,7 +88,9 @@ def _base_opts(cookies_browser: Optional[str]) -> dict:
     """Options shared by info lookups and downloads."""
     opts = {"retries": 10, "fragment_retries": 10, "extractor_retries": 3, "socket_timeout": 30}
     # Wait 2, 4, 8, 16, 30, 30... seconds between retries instead of hammering the server.
-    backoff = lambda attempt: min(2 * 2 ** attempt, 30)  # noqa: E731
+    def backoff(n):
+        return min(2 * 2 ** n, 30)
+
     opts["retry_sleep_functions"] = {"http": backoff, "fragment": backoff, "extractor": backoff}
     runtime = deps.js_runtimes()
     if runtime:
@@ -99,13 +100,28 @@ def _base_opts(cookies_browser: Optional[str]) -> dict:
     return opts
 
 
+def _youtube_stop_reason(msg: str) -> Optional[str]:
+    low = msg.lower()
+    refusal = _HTTP_REFUSAL.search(msg)
+    code = refusal.group(1) if refusal else None
+    if any(hint in low for hint in ("sign in to confirm", "not a bot", "temporarily blocked", "unusual traffic")):
+        return "YouTube requested an access check. Open the link in YouTube and follow its instructions."
+    if code == "429" or any(hint in low for hint in (
+            "too many requests", "rate-limit", "rate limit", "content isn't available, try again later")):
+        return "YouTube is limiting requests. Wait until access is restored before trying again."
+    if code == "403":
+        return "YouTube refused access (HTTP 403). Open the link in YouTube to check its availability."
+    return None
+
+
 def friendly_error(msg: str, platform: str = "youtube") -> str:
     """Turn common yt-dlp failures into advice a user can act on."""
     low = msg.lower()
     name = PLATFORMS[platform]["name"]
-    if "sign in to confirm" in low or "not a bot" in low:
-        return (f"{name} wants to confirm you're not a bot. Pick your browser under 'Browser cookies' "
-                f"(be signed in to {name} there) and try again.")
+    if platform == "youtube":
+        stop_reason = _youtube_stop_reason(msg)
+        if stop_reason:
+            return stop_reason
     if ("could not copy" in low and "cookie" in low) or "failed to decrypt" in low:
         return ("Couldn't read that browser's cookies. Close the browser completely and retry, "
                 "or choose Firefox.")
@@ -128,8 +144,12 @@ def friendly_error(msg: str, platform: str = "youtube") -> str:
     return msg
 
 
-def fetch_info(url: str, cookies_browser: Optional[str] = None, platform: str = "youtube") -> dict:
-    opts = {**_base_opts(cookies_browser), "quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+def fetch_info(url: str, cookies_browser: Optional[str] = None, platform: str = "youtube",
+               playlist: bool = False) -> dict:
+    opts = {**_base_opts(cookies_browser), "quiet": True, "no_warnings": True, "skip_download": True,
+            "noplaylist": not playlist}
+    if platform == "youtube":
+        opts.update(extract_flat="in_playlist", playlistend=1, extractor_retries=0)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -194,6 +214,8 @@ class _Job:
         self.last_error = None    # latest yt-dlp error text, for when nothing downloads
         self.log = []
         self.files = []
+        self.completed = 0
+        self.stopped_early = False
         self.error = None
         self.warning = None       # finished, but not everything (e.g. stopped early)
         self.finished_at = None
@@ -217,6 +239,8 @@ class _Job:
             "item_title": t.item_title,
             "note": self.note,
             "skipped": self.skipped,
+            "completed": self.completed,
+            "stopped_early": self.stopped_early,
             "log": self.log,
             "files": [os.path.basename(f) for f in self.files],
             "error": self.error,
@@ -265,6 +289,13 @@ def _run(job: _Job, quality: str, container: str, subtitles: bool, playlist: boo
         job.add_log("[WARN] Audio extraction needs ffmpeg. Saving best available audio stream instead.")
 
     class _Logger:
+        def stop_if_refused(self, msg):
+            if job.platform == "youtube":
+                reason = _youtube_stop_reason(msg)
+                if reason:
+                    job.abort_reason = reason
+                    raise yt_dlp.utils.DownloadCancelled(reason)
+
         def debug(self, msg):
             # yt-dlp sends its normal progress messages here too, not only through info().
             if not msg.startswith("[debug]"):
@@ -272,16 +303,20 @@ def _run(job: _Job, quality: str, container: str, subtitles: bool, playlist: boo
 
         def info(self, msg):
             job.add_log(msg)
+            if msg.startswith("[download] Got error:"):
+                self.stop_if_refused(msg)
             m = _SLEEP_RE.match(msg)
             if m:
-                job.note = f"Pausing {float(m.group(1)):.0f}s before the next download so the site doesn't block you"
+                job.note = f"Waiting {float(m.group(1)):.0f}s before the next download"
 
         def warning(self, msg):
             job.add_log(f"[WARN] {msg}")
+            self.stop_if_refused(msg)
 
         def error(self, msg):
             job.add_log(f"[ERROR] {msg}")
-            if any(hint in msg.lower() for hint in RATE_LIMIT_HINTS):
+            self.stop_if_refused(msg)
+            if job.platform != "youtube" and any(hint in msg.lower() for hint in RATE_LIMIT_HINTS):
                 job.abort_reason = friendly_error(msg, job.platform)
             else:
                 job.last_error = msg
@@ -331,6 +366,9 @@ def _run(job: _Job, quality: str, container: str, subtitles: bool, playlist: boo
             ydl_opts["sleep_interval_subtitles"] = 1
         # One unavailable video shouldn't throw away the rest of a playlist.
         ydl_opts["ignoreerrors"] = "only_download"
+    elif job.platform == "youtube":
+        # yt-dlp's noplaylist applies to watch links, while a bare playlist can still expand.
+        ydl_opts["playlistend"] = 1
     if ffmpeg:
         ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg)
         if not is_audio:
@@ -338,35 +376,40 @@ def _run(job: _Job, quality: str, container: str, subtitles: bool, playlist: boo
 
     failure = None
     finished_paths = []
+
+    def file_finished(path):
+        finished_paths.append(path)
+        job.completed += 1
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.add_post_hook(finished_paths.append)  # called with each final file (after merging/converting)
+            ydl.add_post_hook(file_finished)  # after merging and conversion
             ydl.download([job.url])
     except Exception as e:
         failure = job.abort_reason or friendly_error(str(e), job.platform)
         job.add_log(f"[ERROR] {e}")
 
-    if job.save_dir:  # only what this job produced; the folder may hold anything else
-        job.files = [f for f in dict.fromkeys(finished_paths) if os.path.isfile(f)]
-    else:
-        job.files = sorted(
-            os.path.join(job.dir, f) for f in os.listdir(job.dir)
-            if not f.endswith((".part", ".ytdl", ".temp")) and os.path.isfile(os.path.join(job.dir, f))
-        )
+    job.files = [f for f in dict.fromkeys(finished_paths) if os.path.isfile(f)]
+    if subtitles and not job.save_dir and job.files:
+        stems = {os.path.splitext(os.path.basename(path))[0] for path in job.files}
+        job.files.extend(os.path.join(job.dir, name) for name in sorted(os.listdir(job.dir))
+                         if name.endswith(".srt") and name.rsplit(".", 2)[0] in stems
+                         and os.path.isfile(os.path.join(job.dir, name)))
     failure = failure or job.abort_reason
+    job.stopped_early = bool(failure)
     if job.files:
-        job.status = "done"
         if failure:
-            job.warning = f"Stopped early with {len(job.files)} file(s) saved. {failure}"
+            job.warning = f"Stopped early after {job.completed} completed download(s). {failure}"
         else:
             job.tracker.finish()
             if job.skipped:
                 job.warning = f"{job.skipped} video(s) couldn't be downloaded and were skipped (see Details)."
-        job.add_log(f"[OK] All done! {len(job.files)} file(s) " + (f"saved to {job.save_dir}" if job.save_dir else "ready."))
+        job.add_log(f"[OK] {len(job.files)} file(s) " + (f"saved to {job.save_dir}" if job.save_dir else "ready."))
+        job.status = "done"
     else:
-        job.status = "error"
         job.error = failure or (friendly_error(job.last_error, job.platform) if job.last_error else
                                 "Nothing was downloaded.")
+        job.status = "error"
     job.note = None
     job.finished_at = time.time()
 

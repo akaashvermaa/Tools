@@ -1,6 +1,18 @@
 @echo off
-REM Windows: double-click to start Aura Tools
-cd /d "%~dp0"
-where py >nul 2>nul
-if %errorlevel%==0 (py -3 launch.py) else (python launch.py)
-if errorlevel 1 pause
+setlocal
+cd /d "%~dp0" || exit /b 1
+
+if not exist ".venv\Scripts\python.exe" (
+    echo Aura Tools needs setup. Double-click launch.bat first, then run.bat.
+    pause
+    exit /b 1
+)
+
+set "AURA_BATCH=1"
+".venv\Scripts\python.exe" launch.py --run-only %*
+set "status=%errorlevel%"
+if not "%status%"=="0" (
+    echo If setup is missing or out of date, run launch.bat and try again.
+    pause
+)
+exit /b %status%
